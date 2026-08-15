@@ -93,9 +93,10 @@ pub async fn login_submit(
     State(state): State<Arc<AppState>>,
     Form(form): Form<LoginForm>,
 ) -> Response {
-    let admin = &state.config.admin;
-    let ok = form.username == admin.username
-        && auth::verify_password(&form.password, &admin.password_hash);
+    let ok = {
+        let conn = state.db.lock().unwrap();
+        crate::admin_users::verify(&conn, &form.username, &form.password).unwrap_or(false)
+    };
     if !ok {
         let d = &state.config.directory;
         return render(LoginPage {

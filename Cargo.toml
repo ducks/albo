@@ -8,7 +8,9 @@ anyhow = "1.0.104"
 argon2 = "0.5.3"
 askama = "0.16.0"
 axum = "0.8.9"
+clap = { version = "4.6.6", features = ["derive"] }
 getrandom = "0.4.3"
+rpassword = "7.5.4"
 rusqlite = { version = "0.40.2", features = ["bundled"] }
 serde = { version = "1.0.229", features = ["derive"] }
 tokio = { version = "1.53.1", features = ["full"] }

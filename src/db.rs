@@ -6,6 +6,14 @@ use rusqlite::Connection;
 use std::path::Path;
 
 const SCHEMA: &str = r#"
+CREATE TABLE IF NOT EXISTS admin_users (
+    id INTEGER PRIMARY KEY,
+    username TEXT NOT NULL UNIQUE,
+    -- argon2 password hash; never a plaintext password.
+    password_hash TEXT NOT NULL,
+    created_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
 CREATE TABLE IF NOT EXISTS entries (
     id INTEGER PRIMARY KEY,
     -- Instagram handle without the @, unique key for the entry.
