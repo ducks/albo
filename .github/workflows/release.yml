@@ -33,12 +33,18 @@ jobs:
         run: cargo build --release --locked --target x86_64-unknown-linux-gnu
       - name: Strip binary
         run: strip target/x86_64-unknown-linux-gnu/release/albo
-      - name: Prepare release asset
-        run: cp target/x86_64-unknown-linux-gnu/release/albo albo-linux-x86_64
+      # Package as albo.tar.gz containing the bare binary. pond-nix fetches
+      # this with fetchzip (stripRoot=false), and scripts/update-service.sh
+      # in pond-nix computes the hash and bumps the pin automatically - so
+      # the artifact name and shape must match ducks/albo -> albo.tar.gz.
+      - name: Package release asset
+        run: |
+          cp target/x86_64-unknown-linux-gnu/release/albo albo
+          tar -czf albo.tar.gz albo
       - uses: actions/upload-artifact@v4
         with:
-          name: albo-linux-x86_64
-          path: albo-linux-x86_64
+          name: albo.tar.gz
+          path: albo.tar.gz
 
   release:
     name: Create GitHub release
@@ -53,5 +59,5 @@ jobs:
       - name: Create GitHub release
         uses: softprops/action-gh-release@v2
         with:
-          files: albo-linux-x86_64
+          files: albo.tar.gz
           generate_release_notes: true
