@@ -2,6 +2,7 @@
 //! configured by directory.toml. Customer #1: a Portland tattooer directory.
 
 mod admin;
+mod admin_users;
 mod auth;
 mod config;
 mod db;
@@ -15,14 +16,71 @@ use axum::extract::State;
 use axum::http::StatusCode;
 use axum::response::{Html, IntoResponse, Response};
 use axum::routing::{get, post};
+use clap::{Parser, Subcommand};
 use rusqlite::Connection;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 
 pub struct AppState {
     pub config: config::Config,
     pub db: Mutex<Connection>,
     pub sessions: auth::Sessions,
+}
+
+#[derive(Parser)]
+#[command(
+    name = "albo",
+    about = "A curated directory of skilled people, built from Instagram handles",
+    version
+)]
+struct Cli {
+    /// Path to the instance config
+    #[arg(long, default_value = "directory.toml", global = true)]
+    config: PathBuf,
+    #[command(subcommand)]
+    command: Option<Command>,
+}
+
+#[derive(Subcommand)]
+enum Command {
+    /// Run the web server (default when no subcommand is given)
+    Serve,
+    /// Create an admin, or reset an existing admin's password (prompts
+    /// for the password; never pass it on the command line)
+    AdminAdd { username: String },
+    /// Remove an admin account
+    AdminRemove { username: String },
+    /// List admin accounts
+    AdminList,
+}
+
+/// Open the instance DB from the config's database path.
+fn open_db(config: &config::Config) -> Result<Connection> {
+    db::open(Path::new(&config.server.database))
+}
+
+/// Read a password for admin creation. On a real terminal, prompt twice
+/// without echo. When stdin is piped (automation, tests), read one line -
+/// this is how a self-hoster scripts admin creation:
+///   echo "$PASS" | albo admin-add jake
+fn prompt_password() -> Result<String> {
+    use std::io::IsTerminal;
+    if std::io::stdin().is_terminal() {
+        let p = rpassword::prompt_password("Password: ")?;
+        let again = rpassword::prompt_password("Confirm: ")?;
+        if p != again {
+            anyhow::bail!("passwords did not match");
+        }
+        Ok(p)
+    } else {
+        let mut line = String::new();
+        std::io::stdin().read_line(&mut line)?;
+        let p = line.trim_end_matches(['\n', '\r']).to_string();
+        if p.is_empty() {
+            anyhow::bail!("no password provided on stdin");
+        }
+        Ok(p)
+    }
 }
 
 #[derive(Template)]
@@ -46,30 +104,43 @@ struct IndexQuery {
 
 #[tokio::main]
 async fn main() -> Result<()> {
-    let mut args = std::env::args().skip(1);
-    let first = args.next();
+    let cli = Cli::parse();
+    let config = config::Config::load(&cli.config)?;
 
-    // `albo hash-password <password>` prints an argon2 hash for the config.
-    if first.as_deref() == Some("hash-password") {
-        let password = args
-            .next()
-            .context("usage: albo hash-password <password>")?;
-        let hash =
-            auth::hash_password(&password).map_err(|e| anyhow::anyhow!("hashing failed: {e}"))?;
-        println!("{hash}");
-        return Ok(());
+    match cli.command.unwrap_or(Command::Serve) {
+        Command::AdminAdd { username } => {
+            let conn = open_db(&config)?;
+            let password = prompt_password()?;
+            admin_users::set(&conn, &username, &password)?;
+            println!("admin '{username}' saved");
+            return Ok(());
+        }
+        Command::AdminRemove { username } => {
+            let conn = open_db(&config)?;
+            if admin_users::remove(&conn, &username)? {
+                println!("removed admin '{username}'");
+            } else {
+                println!("no admin named '{username}'");
+            }
+            return Ok(());
+        }
+        Command::AdminList => {
+            let conn = open_db(&config)?;
+            for u in admin_users::list(&conn)? {
+                println!("{u}");
+            }
+            return Ok(());
+        }
+        Command::Serve => {}
     }
 
-    let config_path = first.unwrap_or_else(|| "directory.toml".into());
-    let config = config::Config::load(Path::new(&config_path))?;
-    if config.admin.password_hash.is_empty() {
+    let conn = open_db(&config)?;
+    if admin_users::count(&conn)? == 0 {
         eprintln!(
-            "warning: [admin] password_hash is empty - admin login is impossible. \
-             Generate one with `albo hash-password <password>`."
+            "warning: no admin accounts exist - admin login is impossible. \
+             Create one with `albo admin-add <username>`."
         );
     }
-
-    let conn = db::open(Path::new(&config.server.database))?;
     let bind = config.server.bind.clone();
     let state = Arc::new(AppState {
         config,

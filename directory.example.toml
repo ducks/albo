@@ -31,7 +31,6 @@ bind = "127.0.0.1:3010"
 # SQLite database path, relative to the working directory.
 database = "albo.db"
 
-[admin]
-# Placeholder single-admin credential model for the scaffold. Will move to
-# hashed credentials + sessions before anything is exposed publicly.
-username = "admin"
+# Admin accounts are NOT configured here - they live in the database.
+# Create the first one with:  albo admin-add <username>
+# (it prompts for a password). Manage with admin-list / admin-remove.
