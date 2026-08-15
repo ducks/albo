@@ -1,0 +1,35 @@
+{% extends "base.html" %}
+{% block title %}Admin — {{ site_name }}{% endblock %}
+{% block content %}
+  <p style="text-align:right">
+    <a href="/">view site</a> ·
+    <form class="row-form" method="post" action="/admin/logout"><button class="quiet" type="submit">log out</button></form>
+  </p>
+
+  <h2>Add {{ entity }}</h2>
+  {% if message != "" %}<p class="notice">{{ message }}</p>{% endif %}
+  <form method="post" action="/admin/add" style="display:flex; gap:.5rem; max-width:28rem">
+    <input type="text" name="handle" placeholder="@handle or instagram.com link" required>
+    <button type="submit">Add</button>
+  </form>
+
+  <h2 style="margin-top:2rem">{{ entries.len() }} {{ entities }}</h2>
+  <table>
+    <tr><th>Handle</th><th>Name</th><th>Shop</th><th>Active</th><th></th></tr>
+    {% for e in entries %}
+      <tr>
+        <td><a href="https://instagram.com/{{ e.handle }}">@{{ e.handle }}</a></td>
+        <td>{{ e.display_name }}</td>
+        <td>{{ e.shop }}</td>
+        <td>{% if e.active %}yes{% else %}hidden{% endif %}</td>
+        <td>
+          <a href="/admin/edit/{{ e.id }}">edit</a>
+          <form class="row-form" method="post" action="/admin/delete/{{ e.id }}"
+                onsubmit="return confirm('Remove @{{ e.handle }}?')">
+            <button class="quiet" type="submit">remove</button>
+          </form>
+        </td>
+      </tr>
+    {% endfor %}
+  </table>
+{% endblock %}

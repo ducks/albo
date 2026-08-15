@@ -1,0 +1,209 @@
+//! CRUD over directory entries. All functions take a &Connection so they
+//! stay synchronous and testable; the server wraps the connection in a
+//! Mutex (directory-scale traffic, not a pool workload).
+
+use anyhow::Result;
+use rusqlite::{Connection, params};
+
+#[derive(Debug, Clone)]
+pub struct Entry {
+    pub id: i64,
+    pub handle: String,
+    pub display_name: String,
+    pub shop: String,
+    pub bio: String,
+    pub avatar_path: String,
+    pub tags: Vec<String>,
+    pub featured_posts: Vec<String>,
+    pub booking_url: String,
+    pub active: bool,
+}
+
+fn row_to_entry(row: &rusqlite::Row) -> rusqlite::Result<Entry> {
+    let tags: String = row.get("tags")?;
+    let posts: String = row.get("featured_posts")?;
+    Ok(Entry {
+        id: row.get("id")?,
+        handle: row.get("handle")?,
+        display_name: row.get("display_name")?,
+        shop: row.get("shop")?,
+        bio: row.get("bio")?,
+        avatar_path: row.get("avatar_path")?,
+        tags: tags
+            .split(',')
+            .map(str::trim)
+            .filter(|s| !s.is_empty())
+            .map(String::from)
+            .collect(),
+        featured_posts: posts
+            .lines()
+            .map(str::trim)
+            .filter(|s| !s.is_empty())
+            .map(String::from)
+            .collect(),
+        booking_url: row.get("booking_url")?,
+        active: row.get::<_, i64>("active")? != 0,
+    })
+}
+
+/// Normalize a user-typed handle: strip whitespace, a leading @, and any
+/// instagram.com URL prefix, lowercase the rest.
+pub fn normalize_handle(raw: &str) -> String {
+    let mut h = raw.trim().to_lowercase();
+    for prefix in [
+        "https://www.instagram.com/",
+        "https://instagram.com/",
+        "http://www.instagram.com/",
+        "http://instagram.com/",
+        "www.instagram.com/",
+        "instagram.com/",
+    ] {
+        if let Some(rest) = h.strip_prefix(prefix) {
+            h = rest.to_string();
+            break;
+        }
+    }
+    h.trim_start_matches('@').trim_end_matches('/').to_string()
+}
+
+pub fn list(conn: &Connection, include_inactive: bool) -> Result<Vec<Entry>> {
+    let sql = if include_inactive {
+        "SELECT * FROM entries ORDER BY sort_order, display_name, handle"
+    } else {
+        "SELECT * FROM entries WHERE active = 1 ORDER BY sort_order, display_name, handle"
+    };
+    let mut stmt = conn.prepare(sql)?;
+    let rows = stmt.query_map([], row_to_entry)?;
+    Ok(rows.collect::<rusqlite::Result<Vec<_>>>()?)
+}
+
+pub fn get(conn: &Connection, id: i64) -> Result<Option<Entry>> {
+    let mut stmt = conn.prepare("SELECT * FROM entries WHERE id = ?1")?;
+    let mut rows = stmt.query_map(params![id], row_to_entry)?;
+    Ok(rows.next().transpose()?)
+}
+
+/// Insert a new entry by handle. Returns the new id, or None if the handle
+/// already exists (the admin UI treats that as "already listed").
+pub fn add_by_handle(conn: &Connection, raw_handle: &str) -> Result<Option<i64>> {
+    let handle = normalize_handle(raw_handle);
+    if handle.is_empty() {
+        return Ok(None);
+    }
+    let res = conn.execute(
+        "INSERT INTO entries (handle, display_name) VALUES (?1, ?1)",
+        params![handle],
+    );
+    match res {
+        Ok(_) => Ok(Some(conn.last_insert_rowid())),
+        Err(rusqlite::Error::SqliteFailure(e, _))
+            if e.code == rusqlite::ErrorCode::ConstraintViolation =>
+        {
+            Ok(None)
+        }
+        Err(e) => Err(e.into()),
+    }
+}
+
+#[allow(clippy::too_many_arguments)]
+pub fn update(
+    conn: &Connection,
+    id: i64,
+    display_name: &str,
+    shop: &str,
+    bio: &str,
+    tags: &str,
+    featured_posts: &str,
+    booking_url: &str,
+    active: bool,
+) -> Result<bool> {
+    let n = conn.execute(
+        "UPDATE entries SET display_name=?2, shop=?3, bio=?4, tags=?5,
+         featured_posts=?6, booking_url=?7, active=?8,
+         updated_at=datetime('now') WHERE id=?1",
+        params![
+            id,
+            display_name,
+            shop,
+            bio,
+            tags,
+            featured_posts,
+            booking_url,
+            active as i64
+        ],
+    )?;
+    Ok(n > 0)
+}
+
+pub fn delete(conn: &Connection, id: i64) -> Result<bool> {
+    let n = conn.execute("DELETE FROM entries WHERE id = ?1", params![id])?;
+    Ok(n > 0)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::db::open_in_memory;
+
+    #[test]
+    fn normalize_strips_at_urls_and_case() {
+        assert_eq!(normalize_handle("@InkByExample"), "inkbyexample");
+        assert_eq!(
+            normalize_handle("https://www.instagram.com/inkbyexample/"),
+            "inkbyexample"
+        );
+        assert_eq!(
+            normalize_handle("  instagram.com/ink.by.example "),
+            "ink.by.example"
+        );
+        assert_eq!(normalize_handle(""), "");
+        assert_eq!(normalize_handle("@"), "");
+    }
+
+    #[test]
+    fn add_normalizes_and_rejects_duplicates() {
+        let conn = open_in_memory().unwrap();
+        let id = add_by_handle(&conn, "@InkByExample").unwrap();
+        assert!(id.is_some());
+        // Same handle in different dress = duplicate.
+        let dup = add_by_handle(&conn, "https://instagram.com/inkbyexample/").unwrap();
+        assert!(dup.is_none());
+        // Empty input never inserts.
+        assert!(add_by_handle(&conn, "  @ ").unwrap().is_none());
+    }
+
+    #[test]
+    fn update_and_list_roundtrip() {
+        let conn = open_in_memory().unwrap();
+        let id = add_by_handle(&conn, "artist").unwrap().unwrap();
+        update(
+            &conn,
+            id,
+            "Artist Name",
+            "Good Shop",
+            "bio here",
+            "blackwork, fine line",
+            "https://www.instagram.com/p/AAA/\nhttps://www.instagram.com/p/BBB/\n",
+            "https://example.com/book",
+            true,
+        )
+        .unwrap();
+        let e = get(&conn, id).unwrap().unwrap();
+        assert_eq!(e.display_name, "Artist Name");
+        assert_eq!(e.tags, vec!["blackwork", "fine line"]);
+        assert_eq!(e.featured_posts.len(), 2);
+
+        // Deactivated entries drop from the public list but stay in admin.
+        update(&conn, id, "Artist Name", "", "", "", "", "", false).unwrap();
+        assert!(list(&conn, false).unwrap().is_empty());
+        assert_eq!(list(&conn, true).unwrap().len(), 1);
+    }
+
+    #[test]
+    fn delete_removes() {
+        let conn = open_in_memory().unwrap();
+        let id = add_by_handle(&conn, "gone").unwrap().unwrap();
+        assert!(delete(&conn, id).unwrap());
+        assert!(get(&conn, id).unwrap().is_none());
+    }
+}
