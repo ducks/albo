@@ -1,0 +1,18 @@
+{% extends "base.html" %}
+{% block content %}
+  {% if entries.is_empty() %}
+    <p>No {{ entities }} listed yet.</p>
+  {% else %}
+    <table>
+      <tr><th>Name</th><th>Shop</th><th>Tags</th><th>Instagram</th></tr>
+      {% for e in entries %}
+        <tr>
+          <td>{{ e.display_name }}</td>
+          <td>{{ e.shop }}</td>
+          <td>{{ e.tags.join(", ") }}</td>
+          <td><a href="https://instagram.com/{{ e.handle }}">@{{ e.handle }}</a></td>
+        </tr>
+      {% endfor %}
+    </table>
+  {% endif %}
+{% endblock %}

@@ -63,11 +63,8 @@ mod tests {
     #[test]
     fn handle_is_unique() {
         let conn = open_in_memory().unwrap();
-        conn.execute(
-            "INSERT INTO entries (handle) VALUES ('dupe')",
-            [],
-        )
-        .unwrap();
+        conn.execute("INSERT INTO entries (handle) VALUES ('dupe')", [])
+            .unwrap();
         let dup = conn.execute("INSERT INTO entries (handle) VALUES ('dupe')", []);
         assert!(dup.is_err());
     }

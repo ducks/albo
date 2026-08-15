@@ -1,0 +1,40 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{% block title %}{{ site_name }}{% endblock %}</title>
+  <style>
+    :root { --fg: #1a1a1a; --muted: #666; --line: #ddd; --accent: #b3261e; }
+    * { box-sizing: border-box; }
+    body { font-family: system-ui, sans-serif; color: var(--fg); margin: 0; }
+    header { border-bottom: 1px solid var(--line); padding: 1rem 1.5rem; }
+    header h1 { margin: 0; font-size: 1.4rem; }
+    header p { margin: .2rem 0 0; color: var(--muted); font-size: .9rem; }
+    main { max-width: 60rem; margin: 0 auto; padding: 1.5rem; }
+    a { color: var(--accent); }
+    table { border-collapse: collapse; width: 100%; }
+    th, td { text-align: left; padding: .5rem .6rem; border-bottom: 1px solid var(--line); }
+    input[type=text], input[type=password], input[type=url], textarea {
+      width: 100%; padding: .5rem; border: 1px solid var(--line); border-radius: 4px;
+      font: inherit;
+    }
+    label { display: block; margin: .8rem 0 .2rem; font-weight: 600; font-size: .9rem; }
+    button { padding: .5rem 1rem; border: 0; border-radius: 4px; background: var(--accent);
+             color: #fff; font: inherit; cursor: pointer; }
+    button.quiet { background: #eee; color: var(--fg); }
+    .row-form { display: inline; }
+    .notice { background: #fff8e1; border: 1px solid #eecf70; padding: .6rem .8rem;
+              border-radius: 4px; margin-bottom: 1rem; }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>{{ site_name }}</h1>
+    <p>{{ tagline }}</p>
+  </header>
+  <main>
+    {% block content %}{% endblock %}
+  </main>
+</body>
+</html>

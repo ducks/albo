@@ -1,0 +1,29 @@
+{% extends "base.html" %}
+{% block title %}Edit @{{ entry.handle }} — {{ site_name }}{% endblock %}
+{% block content %}
+  <p><a href="/admin">&larr; back to admin</a></p>
+  <h2>Edit @{{ entry.handle }}</h2>
+  <form method="post" action="/admin/edit/{{ entry.id }}" style="max-width: 36rem">
+    <label for="display_name">Display name</label>
+    <input type="text" id="display_name" name="display_name" value="{{ entry.display_name }}">
+
+    <label for="shop">Shop</label>
+    <input type="text" id="shop" name="shop" value="{{ entry.shop }}">
+
+    <label for="bio">Bio</label>
+    <textarea id="bio" name="bio" rows="3">{{ entry.bio }}</textarea>
+
+    <label for="tags">Tags (comma-separated{% if available_tags != "" %}; taxonomy: {{ available_tags }}{% endif %})</label>
+    <input type="text" id="tags" name="tags" value="{{ entry.tags.join(", ") }}">
+
+    <label for="featured_posts">Featured Instagram post URLs (one per line, shown as embeds)</label>
+    <textarea id="featured_posts" name="featured_posts" rows="3">{{ entry.featured_posts.join("\n") }}</textarea>
+
+    <label for="booking_url">Booking link</label>
+    <input type="url" id="booking_url" name="booking_url" value="{{ entry.booking_url }}">
+
+    <label><input type="checkbox" name="active" value="1" {% if entry.active %}checked{% endif %}> Visible on the public site</label>
+
+    <p><button type="submit">Save</button></p>
+  </form>
+{% endblock %}
