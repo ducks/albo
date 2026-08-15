@@ -44,6 +44,11 @@ pub struct Server {
 #[derive(Debug, Deserialize)]
 pub struct Admin {
     pub username: String,
+    /// Argon2 hash produced by `albo hash-password`. Never a plaintext
+    /// password; the config file is shareable except for this line's
+    /// secrecy being nice-to-have rather than critical.
+    #[serde(default)]
+    pub password_hash: String,
 }
 
 impl Config {
