@@ -1,0 +1,57 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+jobs:
+  quality:
+    name: Test and lint
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: 1.94.1
+          components: clippy,rustfmt
+      - run: cargo fmt -- --check
+      - run: cargo test --all-targets
+      - run: cargo clippy --all-targets -- -D warnings
+
+  build:
+    name: Build Linux release
+    needs: quality
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: 1.94.1
+          targets: x86_64-unknown-linux-gnu
+      - name: Build
+        run: cargo build --release --locked --target x86_64-unknown-linux-gnu
+      - name: Strip binary
+        run: strip target/x86_64-unknown-linux-gnu/release/albo
+      - name: Prepare release asset
+        run: cp target/x86_64-unknown-linux-gnu/release/albo albo-linux-x86_64
+      - uses: actions/upload-artifact@v4
+        with:
+          name: albo-linux-x86_64
+          path: albo-linux-x86_64
+
+  release:
+    name: Create GitHub release
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          merge-multiple: true
+      - name: Create GitHub release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: albo-linux-x86_64
+          generate_release_notes: true
