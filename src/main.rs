@@ -6,6 +6,7 @@ mod auth;
 mod config;
 mod db;
 mod entries;
+mod instagram;
 
 use anyhow::{Context, Result};
 use askama::Template;
