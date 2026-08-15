@@ -1,0 +1,14 @@
+[package]
+name = "albo"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+anyhow = "1.0.104"
+askama = "0.16.0"
+axum = "0.8.9"
+rusqlite = { version = "0.40.2", features = ["bundled"] }
+serde = { version = "1.0.229", features = ["derive"] }
+tokio = { version = "1.53.1", features = ["full"] }
+toml = "1.1.4"
+tower-http = { version = "0.7.0", features = ["fs"] }

@@ -1,0 +1,37 @@
+# albo instance configuration.
+#
+# One albo process serves one directory. Everything that makes an instance
+# *this* directory (rather than any other) lives here; the engine itself is
+# generic. Copy to directory.toml and edit.
+
+[directory]
+# Site name shown in the header and title. This is the instance's brand -
+# e.g. customer #1 runs as "Meat Ledger".
+name = "Meat Ledger"
+# What one entry is called, singular and plural. Shown in the UI:
+# "Add tattooer", "12 tattooers".
+entity = "tattooer"
+entities = "tattooers"
+# City / scope line shown under the name.
+tagline = "Portland tattooers, curated"
+
+[tags]
+# The tag taxonomy admins can assign to entries. Order is display order.
+available = [
+  "traditional",
+  "fine line",
+  "blackwork",
+  "color",
+  "realism",
+  "flash",
+]
+
+[server]
+bind = "127.0.0.1:3010"
+# SQLite database path, relative to the working directory.
+database = "albo.db"
+
+[admin]
+# Placeholder single-admin credential model for the scaffold. Will move to
+# hashed credentials + sessions before anything is exposed publicly.
+username = "admin"
