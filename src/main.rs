@@ -32,6 +32,16 @@ struct IndexPage<'a> {
     tagline: &'a str,
     entities: &'a str,
     entries: Vec<entries::Entry>,
+    /// (tag, count) pairs for the filter bar.
+    tags: Vec<(String, usize)>,
+    /// The currently-selected tag, empty when showing all.
+    active_tag: String,
+}
+
+#[derive(serde::Deserialize)]
+struct IndexQuery {
+    #[serde(default)]
+    tag: String,
 }
 
 #[tokio::main]
@@ -139,16 +149,30 @@ async fn artist(
     }
 }
 
-async fn index(State(state): State<Arc<AppState>>) -> Response {
-    let conn = state.db.lock().unwrap();
-    let listed = entries::list(&conn, false).unwrap_or_default();
-    drop(conn);
+async fn index(
+    State(state): State<Arc<AppState>>,
+    axum::extract::Query(q): axum::extract::Query<IndexQuery>,
+) -> Response {
+    let tag = q.tag.trim().to_string();
+    let (listed, tags) = {
+        let conn = state.db.lock().unwrap();
+        let listed = if tag.is_empty() {
+            entries::list(&conn, false)
+        } else {
+            entries::list_by_tag(&conn, &tag)
+        }
+        .unwrap_or_default();
+        let tags = entries::tags_in_use(&conn).unwrap_or_default();
+        (listed, tags)
+    };
     let d = &state.config.directory;
     let page = IndexPage {
         site_name: &d.name,
         tagline: &d.tagline,
         entities: &d.entities,
         entries: listed,
+        tags,
+        active_tag: tag,
     };
     match page.render() {
         Ok(html) => Html(html).into_response(),
