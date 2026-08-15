@@ -2,6 +2,10 @@
 name = "albo"
 version = "0.1.0"
 edition = "2024"
+description = "A curated directory of skilled people, built from their Instagram handles"
+license = "MIT"
+repository = "https://github.com/ducks/albo"
+readme = "README.md"
 
 [dependencies]
 anyhow = "1.0.104"
