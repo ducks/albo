@@ -69,6 +69,8 @@ async fn main() -> Result<()> {
 
     let app = Router::new()
         .route("/", get(index))
+        .route("/a/{handle}", get(artist))
+        .nest_service("/avatars", tower_http::services::ServeDir::new("avatars"))
         .route("/health", get(|| async { "ok" }))
         .route("/admin", get(admin::dashboard))
         .route(
@@ -90,6 +92,51 @@ async fn main() -> Result<()> {
     println!("albo serving on http://{bind}");
     axum::serve(listener, app).await?;
     Ok(())
+}
+
+#[derive(Template)]
+#[template(path = "artist.html")]
+struct ArtistPage<'a> {
+    site_name: &'a str,
+    tagline: &'a str,
+    entities: &'a str,
+    entry: entries::Entry,
+    embeds: Vec<String>,
+}
+
+async fn artist(
+    State(state): State<Arc<AppState>>,
+    axum::extract::Path(handle): axum::extract::Path<String>,
+) -> Response {
+    let normalized = entries::normalize_handle(&handle);
+    let conn = state.db.lock().unwrap();
+    let entry = entries::get_by_handle(&conn, &normalized).ok().flatten();
+    drop(conn);
+    let Some(entry) = entry else {
+        return (StatusCode::NOT_FOUND, "no such artist").into_response();
+    };
+    // Only URLs we reconstructed ourselves reach the template (XSS boundary).
+    let embeds: Vec<String> = entry
+        .featured_posts
+        .iter()
+        .filter_map(|u| instagram::embed_url(u))
+        .collect();
+    let d = &state.config.directory;
+    let page = ArtistPage {
+        site_name: &d.name,
+        tagline: &d.tagline,
+        entities: &d.entities,
+        entry,
+        embeds,
+    };
+    match page.render() {
+        Ok(html) => Html(html).into_response(),
+        Err(e) => (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            format!("template error: {e}"),
+        )
+            .into_response(),
+    }
 }
 
 async fn index(State(state): State<Arc<AppState>>) -> Response {

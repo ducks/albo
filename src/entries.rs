@@ -83,6 +83,38 @@ pub fn get(conn: &Connection, id: i64) -> Result<Option<Entry>> {
     Ok(rows.next().transpose()?)
 }
 
+pub fn get_by_handle(conn: &Connection, handle: &str) -> Result<Option<Entry>> {
+    let mut stmt = conn.prepare("SELECT * FROM entries WHERE handle = ?1 AND active = 1")?;
+    let mut rows = stmt.query_map(params![handle], row_to_entry)?;
+    Ok(rows.next().transpose()?)
+}
+
+/// Apply best-effort Instagram prefill without clobbering admin edits:
+/// display_name only replaces the insert-time default (the handle itself),
+/// and avatar_path only fills if currently empty.
+pub fn apply_prefill(
+    conn: &Connection,
+    id: i64,
+    display_name: Option<&str>,
+    avatar_path: Option<&str>,
+) -> Result<()> {
+    if let Some(name) = display_name {
+        conn.execute(
+            "UPDATE entries SET display_name = ?2, updated_at = datetime('now')
+             WHERE id = ?1 AND display_name = handle",
+            params![id, name],
+        )?;
+    }
+    if let Some(avatar) = avatar_path {
+        conn.execute(
+            "UPDATE entries SET avatar_path = ?2, updated_at = datetime('now')
+             WHERE id = ?1 AND avatar_path = ''",
+            params![id, avatar],
+        )?;
+    }
+    Ok(())
+}
+
 /// Insert a new entry by handle. Returns the new id, or None if the handle
 /// already exists (the admin UI treats that as "already listed").
 pub fn add_by_handle(conn: &Connection, raw_handle: &str) -> Result<Option<i64>> {
@@ -197,6 +229,33 @@ mod tests {
         update(&conn, id, "Artist Name", "", "", "", "", "", false).unwrap();
         assert!(list(&conn, false).unwrap().is_empty());
         assert_eq!(list(&conn, true).unwrap().len(), 1);
+    }
+
+    #[test]
+    fn prefill_never_clobbers_admin_edits() {
+        let conn = open_in_memory().unwrap();
+        let id = add_by_handle(&conn, "artist").unwrap().unwrap();
+
+        // Fresh entry: display_name defaults to the handle, so prefill lands.
+        apply_prefill(&conn, id, Some("Real Name"), Some("avatars/artist.jpg")).unwrap();
+        let e = get(&conn, id).unwrap().unwrap();
+        assert_eq!(e.display_name, "Real Name");
+        assert_eq!(e.avatar_path, "avatars/artist.jpg");
+
+        // A second prefill (e.g. re-add attempt) must not overwrite either.
+        apply_prefill(&conn, id, Some("Wrong Name"), Some("avatars/other.jpg")).unwrap();
+        let e = get(&conn, id).unwrap().unwrap();
+        assert_eq!(e.display_name, "Real Name");
+        assert_eq!(e.avatar_path, "avatars/artist.jpg");
+    }
+
+    #[test]
+    fn get_by_handle_only_finds_active() {
+        let conn = open_in_memory().unwrap();
+        let id = add_by_handle(&conn, "artist").unwrap().unwrap();
+        assert!(get_by_handle(&conn, "artist").unwrap().is_some());
+        update(&conn, id, "artist", "", "", "", "", "", false).unwrap();
+        assert!(get_by_handle(&conn, "artist").unwrap().is_none());
     }
 
     #[test]

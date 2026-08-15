@@ -7,7 +7,7 @@
       <tr><th>Name</th><th>Shop</th><th>Tags</th><th>Instagram</th></tr>
       {% for e in entries %}
         <tr>
-          <td>{{ e.display_name }}</td>
+          <td><a href="/a/{{ e.handle }}">{{ e.display_name }}</a></td>
           <td>{{ e.shop }}</td>
           <td>{{ e.tags.join(", ") }}</td>
           <td><a href="https://instagram.com/{{ e.handle }}">@{{ e.handle }}</a></td>
