@@ -152,9 +152,13 @@ pub fn download_avatar(data_dir: &Path, handle: &str, avatar_url: &str) -> Optio
 }
 
 /// Validate a featured-post URL and return its official embed URL.
-/// Accepts instagram.com/p/<code>/ and /reel/<code>/ forms; anything else
-/// is rejected (this is also the XSS boundary for admin-entered URLs -
-/// only URLs we reconstructed ourselves reach the template).
+/// Instagram uses several equivalent shapes for the same post:
+///   instagram.com/p/<code>/           instagram.com/reel/<code>/
+///   instagram.com/<handle>/p/<code>/  instagram.com/<handle>/reel/<code>/
+/// We locate the p|reel segment wherever it appears and take the shortcode
+/// after it. Anything without a valid p|reel/<code> pair is rejected - this
+/// is also the XSS boundary for admin-entered URLs, since only URLs we
+/// reconstruct ourselves reach the template.
 pub fn embed_url(post_url: &str) -> Option<String> {
     let trimmed = post_url.trim();
     let rest = trimmed
@@ -164,12 +168,14 @@ pub fn embed_url(post_url: &str) -> Option<String> {
         .or_else(|| trimmed.strip_prefix("http://instagram.com/"))
         .or_else(|| trimmed.strip_prefix("www.instagram.com/"))
         .or_else(|| trimmed.strip_prefix("instagram.com/"))?;
-    let mut parts = rest.split('/').filter(|p| !p.is_empty());
-    let kind = parts.next()?;
-    if kind != "p" && kind != "reel" {
-        return None;
-    }
-    let code = parts.next()?;
+    // Drop any query string / fragment before segmenting.
+    let path = rest.split(['?', '#']).next().unwrap_or(rest);
+    let segments: Vec<&str> = path.split('/').filter(|p| !p.is_empty()).collect();
+
+    // Find the p|reel marker, then the shortcode immediately after it.
+    let marker = segments.iter().position(|s| *s == "p" || *s == "reel")?;
+    let kind = segments[marker];
+    let code = segments.get(marker + 1)?;
     // Shortcodes are URL-safe base64-ish; reject anything else.
     if code.is_empty()
         || !code
@@ -234,6 +240,20 @@ mod tests {
         assert_eq!(
             embed_url("instagram.com/reel/AbC123/"),
             Some("https://www.instagram.com/reel/AbC123/embed/".into())
+        );
+        // Handle-prefixed forms - the shape IG copies from a profile.
+        assert_eq!(
+            embed_url("https://www.instagram.com/damn_zippy/p/Da9dJvWG4iE/"),
+            Some("https://www.instagram.com/p/Da9dJvWG4iE/embed/".into())
+        );
+        assert_eq!(
+            embed_url("https://www.instagram.com/damn_zippy/reel/Da6aDsYPwCk/"),
+            Some("https://www.instagram.com/reel/Da6aDsYPwCk/embed/".into())
+        );
+        // Query strings / fragments are stripped.
+        assert_eq!(
+            embed_url("https://www.instagram.com/p/AbC123/?igsh=xyz"),
+            Some("https://www.instagram.com/p/AbC123/embed/".into())
         );
         // Profile links, other hosts, and injection attempts are rejected.
         assert_eq!(embed_url("https://www.instagram.com/damn_zippy/"), None);
