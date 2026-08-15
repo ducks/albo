@@ -1,0 +1,38 @@
+{% extends "base.html" %}
+{% block title %}{{ entry.display_name }} — {{ site_name }}{% endblock %}
+{% block content %}
+  <p><a href="/">&larr; all {{ entities }}</a></p>
+  <div style="display:flex; gap:1rem; align-items:center">
+    {% if entry.avatar_path != "" %}
+      <img src="/{{ entry.avatar_path }}" alt="" width="72" height="72"
+           style="border-radius:50%; object-fit:cover">
+    {% endif %}
+    <div>
+      <h2 style="margin:0">{{ entry.display_name }}</h2>
+      <p style="margin:.2rem 0; color:#666">
+        <a href="https://instagram.com/{{ entry.handle }}">@{{ entry.handle }}</a>
+        {% if entry.shop != "" %} · {{ entry.shop }}{% endif %}
+      </p>
+    </div>
+  </div>
+
+  {% if entry.bio != "" %}<p>{{ entry.bio }}</p>{% endif %}
+  {% if !entry.tags.is_empty() %}<p style="color:#666">{{ entry.tags.join(" · ") }}</p>{% endif %}
+  {% if entry.booking_url != "" %}
+    <p><a href="{{ entry.booking_url }}"><strong>Book with {{ entry.display_name }}</strong></a></p>
+  {% endif %}
+
+  {% if !embeds.is_empty() %}
+    <div style="display:flex; flex-wrap:wrap; gap:1rem; margin-top:1rem">
+      {% for url in embeds %}
+        <iframe src="{{ url }}" width="320" height="400" frameborder="0"
+                scrolling="no" loading="lazy"
+                style="border:1px solid #ddd; border-radius:4px"></iframe>
+      {% endfor %}
+    </div>
+    <p style="color:#666; font-size:.85rem">
+      Work samples embedded from Instagram.
+      <a href="https://instagram.com/{{ entry.handle }}">See more on the profile.</a>
+    </p>
+  {% endif %}
+{% endblock %}

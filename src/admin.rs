@@ -148,11 +148,34 @@ pub async fn add(
     Form(form): Form<AddForm>,
 ) -> Response {
     require_admin!(state, headers);
-    let conn = state.db.lock().unwrap();
-    let added = entries::add_by_handle(&conn, &form.handle);
-    drop(conn);
+    // Block-scope the guard: an explicit drop() is not enough for the
+    // async Send analysis when an await follows in the same scope.
+    let added = {
+        let conn = state.db.lock().unwrap();
+        entries::add_by_handle(&conn, &form.handle)
+    };
     match added {
-        Ok(Some(id)) => Redirect::to(&format!("/admin/edit/{id}")).into_response(),
+        Ok(Some(id)) => {
+            // Best-effort Instagram prefill: fetch off the async runtime,
+            // apply only over defaults, and any failure means the edit form
+            // simply comes up unprefilled. Never blocks the add.
+            let handle = entries::normalize_handle(&form.handle);
+            let prefill = tokio::task::spawn_blocking(move || {
+                let p = crate::instagram::fetch_profile_prefill(&handle)?;
+                let avatar = p.avatar_url.as_deref().and_then(|url| {
+                    crate::instagram::download_avatar(std::path::Path::new("."), &handle, url)
+                });
+                Some((p.display_name, avatar))
+            })
+            .await
+            .ok()
+            .flatten();
+            if let Some((name, avatar)) = prefill {
+                let conn = state.db.lock().unwrap();
+                let _ = entries::apply_prefill(&conn, id, name.as_deref(), avatar.as_deref());
+            }
+            Redirect::to(&format!("/admin/edit/{id}")).into_response()
+        }
         Ok(None) => {
             let conn = state.db.lock().unwrap();
             let entries = entries::list(&conn, true).unwrap_or_default();
