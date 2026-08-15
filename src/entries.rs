@@ -89,6 +89,32 @@ pub fn get_by_handle(conn: &Connection, handle: &str) -> Result<Option<Entry>> {
     Ok(rows.next().transpose()?)
 }
 
+/// Active entries carrying `tag` (case-insensitive, exact tag match).
+pub fn list_by_tag(conn: &Connection, tag: &str) -> Result<Vec<Entry>> {
+    let want = tag.trim().to_lowercase();
+    Ok(list(conn, false)?
+        .into_iter()
+        .filter(|e| e.tags.iter().any(|t| t.to_lowercase() == want))
+        .collect())
+}
+
+/// Tags actually in use across active entries, with counts, sorted by
+/// count desc then name. Drives the public filter bar - we show tags that
+/// exist on real entries, not the full config taxonomy, so empty tags
+/// never appear as dead filters.
+pub fn tags_in_use(conn: &Connection) -> Result<Vec<(String, usize)>> {
+    use std::collections::BTreeMap;
+    let mut counts: BTreeMap<String, usize> = BTreeMap::new();
+    for e in list(conn, false)? {
+        for t in e.tags {
+            *counts.entry(t).or_default() += 1;
+        }
+    }
+    let mut v: Vec<(String, usize)> = counts.into_iter().collect();
+    v.sort_by(|a, b| b.1.cmp(&a.1).then_with(|| a.0.cmp(&b.0)));
+    Ok(v)
+}
+
 /// Apply best-effort Instagram prefill without clobbering admin edits:
 /// display_name only replaces the insert-time default (the handle itself),
 /// and avatar_path only fills if currently empty.
@@ -247,6 +273,30 @@ mod tests {
         let e = get(&conn, id).unwrap().unwrap();
         assert_eq!(e.display_name, "Real Name");
         assert_eq!(e.avatar_path, "avatars/artist.jpg");
+    }
+
+    #[test]
+    fn tag_filtering_and_usage_counts() {
+        let conn = open_in_memory().unwrap();
+        let a = add_by_handle(&conn, "a").unwrap().unwrap();
+        let b = add_by_handle(&conn, "b").unwrap().unwrap();
+        let c = add_by_handle(&conn, "c").unwrap().unwrap();
+        update(&conn, a, "A", "", "", "blackwork, fine line", "", "", true).unwrap();
+        update(&conn, b, "B", "", "", "blackwork", "", "", true).unwrap();
+        // Inactive entry's tags must not count or appear.
+        update(&conn, c, "C", "", "", "blackwork, color", "", "", false).unwrap();
+
+        // Case-insensitive tag match, active only.
+        let bw = list_by_tag(&conn, "BlackWork").unwrap();
+        let names: Vec<&str> = bw.iter().map(|e| e.display_name.as_str()).collect();
+        assert_eq!(names, vec!["A", "B"]); // not C (inactive)
+
+        assert!(list_by_tag(&conn, "color").unwrap().is_empty()); // only on inactive C
+        assert!(list_by_tag(&conn, "nope").unwrap().is_empty());
+
+        // Usage counts exclude inactive; sorted count desc then name.
+        let used = tags_in_use(&conn).unwrap();
+        assert_eq!(used, vec![("blackwork".into(), 2), ("fine line".into(), 1)]);
     }
 
     #[test]

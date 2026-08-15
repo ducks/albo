@@ -1,7 +1,28 @@
 {% extends "base.html" %}
 {% block content %}
+  {% if !tags.is_empty() %}
+    <p style="margin-bottom:1rem">
+      {% if active_tag == "" %}
+        <strong style="margin-right:.5rem">All</strong>
+      {% else %}
+        <a href="/" style="margin-right:.5rem">All</a>
+      {% endif %}
+      {% for tag in tags %}
+        {% if tag.0 == active_tag %}
+          <strong style="margin-right:.5rem">{{ tag.0 }} ({{ tag.1 }})</strong>
+        {% else %}
+          <a href="/?tag={{ tag.0 }}" style="margin-right:.5rem">{{ tag.0 }} ({{ tag.1 }})</a>
+        {% endif %}
+      {% endfor %}
+    </p>
+  {% endif %}
+
   {% if entries.is_empty() %}
-    <p>No {{ entities }} listed yet.</p>
+    {% if active_tag == "" %}
+      <p>No {{ entities }} listed yet.</p>
+    {% else %}
+      <p>No {{ entities }} tagged "{{ active_tag }}". <a href="/">Show all</a>.</p>
+    {% endif %}
   {% else %}
     <table>
       <tr><th>Name</th><th>Shop</th><th>Tags</th><th>Instagram</th></tr>
