@@ -5,10 +5,34 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>{% block title %}{{ site_name }}{% endblock %}</title>
   <style>
-    :root { --fg: #1a1a1a; --muted: #666; --line: #ddd; --accent: #b3261e; }
+    /* Light theme (default). Every color is a variable so a theme is just
+       a new set of these. */
+    :root {
+      --bg: #ffffff; --fg: #1a1a1a; --muted: #666; --line: #ddd;
+      --accent: #b3261e; --accent-fg: #fff;
+      --quiet-bg: #eee; --notice-bg: #fff8e1; --notice-line: #eecf70;
+    }
+    /* Dark theme: applied when the OS asks for it, unless the visitor has
+       explicitly chosen light (data-theme="light" wins via the block below). */
+    @media (prefers-color-scheme: dark) {
+      :root:not([data-theme="light"]) {
+        --bg: #15161a; --fg: #e6e6e6; --muted: #9aa0a6; --line: #34363c;
+        --accent: #ff6b61; --accent-fg: #15161a;
+        --quiet-bg: #26272c; --notice-bg: #3a2f16; --notice-line: #6b5a2a;
+      }
+    }
+    /* Explicit override: data-theme on <html> forces a theme regardless of OS. */
+    :root[data-theme="dark"] {
+      --bg: #15161a; --fg: #e6e6e6; --muted: #9aa0a6; --line: #34363c;
+      --accent: #ff6b61; --accent-fg: #15161a;
+      --quiet-bg: #26272c; --notice-bg: #3a2f16; --notice-line: #6b5a2a;
+    }
+
     * { box-sizing: border-box; }
-    body { font-family: system-ui, sans-serif; color: var(--fg); margin: 0; }
-    header { border-bottom: 1px solid var(--line); padding: 1rem 1.5rem; }
+    body { font-family: system-ui, sans-serif; color: var(--fg);
+           background: var(--bg); margin: 0; }
+    header { border-bottom: 1px solid var(--line); padding: 1rem 1.5rem;
+             display: flex; justify-content: space-between; align-items: flex-start; }
     header h1 { margin: 0; font-size: 1.4rem; }
     header p { margin: .2rem 0 0; color: var(--muted); font-size: .9rem; }
     main { max-width: 60rem; margin: 0 auto; padding: 1.5rem; }
@@ -17,24 +41,50 @@
     th, td { text-align: left; padding: .5rem .6rem; border-bottom: 1px solid var(--line); }
     input[type=text], input[type=password], input[type=url], textarea {
       width: 100%; padding: .5rem; border: 1px solid var(--line); border-radius: 4px;
-      font: inherit;
+      font: inherit; background: var(--bg); color: var(--fg);
     }
     label { display: block; margin: .8rem 0 .2rem; font-weight: 600; font-size: .9rem; }
     button { padding: .5rem 1rem; border: 0; border-radius: 4px; background: var(--accent);
-             color: #fff; font: inherit; cursor: pointer; }
-    button.quiet { background: #eee; color: var(--fg); }
+             color: var(--accent-fg); font: inherit; cursor: pointer; }
+    button.quiet { background: var(--quiet-bg); color: var(--fg); }
     .row-form { display: inline; }
-    .notice { background: #fff8e1; border: 1px solid #eecf70; padding: .6rem .8rem;
-              border-radius: 4px; margin-bottom: 1rem; }
+    .notice { background: var(--notice-bg); border: 1px solid var(--notice-line);
+              padding: .6rem .8rem; border-radius: 4px; margin-bottom: 1rem; }
+    /* Theme toggle: a bare button, no accent fill. */
+    #theme-toggle { background: none; color: var(--muted); padding: .3rem .5rem;
+                    font-size: 1.1rem; line-height: 1; }
   </style>
 </head>
 <body>
   <header>
-    <h1>{{ site_name }}</h1>
-    <p>{{ tagline }}</p>
+    <div>
+      <h1>{{ site_name }}</h1>
+      <p>{{ tagline }}</p>
+    </div>
+    <button id="theme-toggle" type="button" title="Toggle light/dark" aria-label="Toggle light/dark">◐</button>
   </header>
   <main>
     {% block content %}{% endblock %}
   </main>
+  <script>
+    // Apply a saved preference immediately (before paint where possible).
+    (function () {
+      var saved = localStorage.getItem("albo-theme");
+      if (saved) document.documentElement.setAttribute("data-theme", saved);
+      var btn = document.getElementById("theme-toggle");
+      if (!btn) return;
+      btn.addEventListener("click", function () {
+        var root = document.documentElement;
+        // Resolve the currently-shown theme (explicit attr, else OS).
+        var current = root.getAttribute("data-theme");
+        if (!current) {
+          current = window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light";
+        }
+        var next = current === "dark" ? "light" : "dark";
+        root.setAttribute("data-theme", next);
+        localStorage.setItem("albo-theme", next);
+      });
+    })();
+  </script>
 </body>
 </html>
