@@ -7,8 +7,29 @@
     <label for="display_name">Display name</label>
     <input type="text" id="display_name" name="display_name" value="{{ entry.display_name }}">
 
-    <label for="shop">Shop</label>
-    <input type="text" id="shop" name="shop" value="{{ entry.shop }}">
+    <label for="shop">Shop (free text, legacy)</label>
+    <input type="text" id="shop" name="shop" value="{{ entry.shop }}"
+           placeholder="usually leave blank; link a shop below instead">
+
+    {% if !shops.is_empty() %}
+      <label>Shops (location comes from the linked shop)</label>
+      <div style="border:1px solid var(--line); border-radius:4px; padding:.5rem .7rem">
+        {% for s in shops %}
+          <label style="font-weight:400; margin:.2rem 0; display:block">
+            <input type="checkbox" name="shop_id" value="{{ s.0.id }}"
+                   {% if s.1 %}checked{% endif %}>
+            {{ s.0.name }}{% if s.0.address != "" %} <span style="color:var(--muted)">— {{ s.0.address }}</span>{% endif %}
+          </label>
+        {% endfor %}
+      </div>
+      <p style="color:var(--muted); font-size:.85rem; margin:.3rem 0 0">
+        Manage the shop list on the <a href="/admin/shops">shops page</a>.
+      </p>
+    {% else %}
+      <p style="color:var(--muted); font-size:.85rem">
+        No shops yet. Add them on the <a href="/admin/shops">shops page</a> to link artists to a shared location.
+      </p>
+    {% endif %}
 
     <label for="bio">Bio</label>
     <textarea id="bio" name="bio" rows="3">{{ entry.bio }}</textarea>
@@ -22,9 +43,12 @@
     <label for="booking_url">Booking link</label>
     <input type="url" id="booking_url" name="booking_url" value="{{ entry.booking_url }}">
 
-    <label for="address">Shop address (for the map; geocoded on save)</label>
+    <label for="address">Personal address (only for shopless artists; geocoded on save)</label>
     <input type="text" id="address" name="address" value="{{ entry.address }}"
            placeholder="123 Main St, Portland, OR">
+    <p style="color:var(--muted); font-size:.85rem; margin:.3rem 0 0">
+      Ignored on the map when the artist is linked to a shop — the shop's location wins.
+    </p>
     {% if entry.address != "" && !entry.located() %}
       <p class="notice">This address didn't geocode to a map location. Check the
         spelling, or leave it - the entry still appears in the list.</p>
