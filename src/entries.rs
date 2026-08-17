@@ -29,7 +29,7 @@ impl Entry {
     }
 }
 
-fn row_to_entry(row: &rusqlite::Row) -> rusqlite::Result<Entry> {
+pub(crate) fn row_to_entry(row: &rusqlite::Row) -> rusqlite::Result<Entry> {
     let tags: String = row.get("tags")?;
     let posts: String = row.get("featured_posts")?;
     Ok(Entry {
@@ -214,7 +214,6 @@ pub fn update(conn: &Connection, id: i64, e: &EntryEdit) -> Result<bool> {
     )?;
     Ok(n > 0)
 }
-
 
 pub fn delete(conn: &Connection, id: i64) -> Result<bool> {
     let n = conn.execute("DELETE FROM entries WHERE id = ?1", params![id])?;

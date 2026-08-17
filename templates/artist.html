@@ -11,7 +11,9 @@
       <h2 style="margin:0">{{ entry.display_name }}</h2>
       <p style="margin:.2rem 0; color:#666">
         <a href="https://instagram.com/{{ entry.handle }}">@{{ entry.handle }}</a>
-        {% if entry.shop != "" %} · {{ entry.shop }}{% endif %}
+        {% if !shops.is_empty() %}
+          {% for s in shops %} · <a href="/s/{{ s.id }}">{{ s.name }}</a>{% endfor %}
+        {% else if entry.shop != "" %} · {{ entry.shop }}{% endif %}
       </p>
     </div>
   </div>

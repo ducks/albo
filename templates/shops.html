@@ -1,0 +1,55 @@
+{% extends "base.html" %}
+{% block title %}Shops — {{ site_name }}{% endblock %}
+{% block content %}
+  <p><a href="/admin">&larr; back to admin</a></p>
+  <h2>Shops</h2>
+  <p style="color:var(--muted)">A shop holds one shared address. Link artists to
+    it on their edit page; they inherit its map location.</p>
+
+  {% if message != "" %}<p class="notice">{{ message }}</p>{% endif %}
+
+  <form method="post" action="/admin/shops/add" style="display:flex; gap:.5rem; max-width:28rem">
+    <input type="text" name="name" placeholder="New shop name" required>
+    <button type="submit">Add</button>
+  </form>
+
+  {% if shops.is_empty() %}
+    <p style="margin-top:1.5rem">No shops yet.</p>
+  {% else %}
+    <div style="margin-top:1.5rem">
+      {% for s in shops %}
+        <form method="post" action="/admin/shops/edit/{{ s.id }}"
+              style="border:1px solid var(--line); border-radius:4px; padding:.8rem 1rem; margin-bottom:1rem">
+          <div style="display:flex; gap:.5rem; align-items:flex-end; flex-wrap:wrap">
+            <div style="flex:1; min-width:12rem">
+              <label for="name-{{ s.id }}">Name</label>
+              <input type="text" id="name-{{ s.id }}" name="name" value="{{ s.name }}" required>
+            </div>
+            <div style="flex:2; min-width:16rem">
+              <label for="addr-{{ s.id }}">Address (geocoded on save)</label>
+              <input type="text" id="addr-{{ s.id }}" name="address" value="{{ s.address }}"
+                     placeholder="123 Main St, Portland, OR">
+            </div>
+          </div>
+          {% if s.address != "" && !s.located() %}
+            <p class="notice">This address didn't geocode to a map location. Check
+              the spelling, or leave it - the shop still lists.</p>
+          {% else if s.located() %}
+            <p style="color:var(--muted); font-size:.85rem; margin:.3rem 0 0">Mapped ✓</p>
+          {% endif %}
+          <p style="margin:.6rem 0 0; display:flex; gap:.5rem">
+            <button type="submit">Save</button>
+          </p>
+          <p style="margin:.6rem 0 0">
+            <button class="quiet" type="submit"
+                    formaction="/admin/shops/delete/{{ s.id }}"
+                    onsubmit="return true"
+                    onclick="return confirm('Delete shop {{ s.name }}? Artists will be unlinked.')">
+              Delete shop
+            </button>
+          </p>
+        </form>
+      {% endfor %}
+    </div>
+  {% endif %}
+{% endblock %}

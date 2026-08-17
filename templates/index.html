@@ -91,9 +91,18 @@
             var group = [];
             pins.forEach(function (p) {
               var m = L.marker([p.lat, p.lng]).addTo(map);
-              var label = "<strong>" + escapeHtml(p.name) + "</strong>";
-              if (p.shop) label += "<br>" + escapeHtml(p.shop);
-              label += '<br><a href="/a/' + encodeURIComponent(p.handle) + '">view</a>';
+              var label = "";
+              if (p.shop) {
+                label += '<strong><a href="/s/' + p.shop_id + '">' +
+                         escapeHtml(p.shop) + "</a></strong>";
+              }
+              // List each artist at this pin, linking to their page.
+              var lines = p.artists.map(function (a) {
+                return '<a href="/a/' + encodeURIComponent(a.handle) + '">' +
+                       escapeHtml(a.name || ("@" + a.handle)) + "</a>";
+              });
+              if (label) label += "<br>";
+              label += lines.join("<br>");
               m.bindPopup(label);
               group.push([p.lat, p.lng]);
             });

@@ -9,6 +9,7 @@ mod db;
 mod entries;
 mod geocode;
 mod instagram;
+mod shops;
 
 use anyhow::{Context, Result};
 use askama::Template;
@@ -120,18 +121,33 @@ fn json_escape(s: &str) -> String {
     out
 }
 
-/// Build the map-pin JSON array for a set of entries. Only located entries
-/// are included; each pin carries what the popup needs.
-fn pins_json(entries: &[entries::Entry]) -> String {
+/// Build the map-pin JSON array. Each pin is a shop (with its roster) or a
+/// solo shopless artist; the popup shows the shop link and every artist.
+fn pins_json(pins: &[shops::MapPin]) -> String {
     let mut items: Vec<String> = Vec::new();
-    for e in entries.iter().filter(|e| e.located()) {
+    for p in pins {
+        let (shop_id, shop_name) = match &p.shop {
+            Some(s) => (s.id.to_string(), json_escape(&s.name)),
+            None => ("0".to_string(), String::new()),
+        };
+        let artists: Vec<String> = p
+            .artists
+            .iter()
+            .map(|a| {
+                format!(
+                    "{{\"name\":\"{}\",\"handle\":\"{}\"}}",
+                    json_escape(&a.display_name),
+                    json_escape(&a.handle),
+                )
+            })
+            .collect();
         items.push(format!(
-            "{{\"name\":\"{}\",\"handle\":\"{}\",\"shop\":\"{}\",\"lat\":{},\"lng\":{}}}",
-            json_escape(&e.display_name),
-            json_escape(&e.handle),
-            json_escape(&e.shop),
-            e.lat.unwrap(),
-            e.lng.unwrap(),
+            "{{\"lat\":{},\"lng\":{},\"shop_id\":{},\"shop\":\"{}\",\"artists\":[{}]}}",
+            p.lat,
+            p.lng,
+            shop_id,
+            shop_name,
+            artists.join(","),
         ));
     }
     format!("[{}]", items.join(","))
@@ -192,6 +208,7 @@ async fn main() -> Result<()> {
     let app = Router::new()
         .route("/", get(index))
         .route("/a/{handle}", get(artist))
+        .route("/s/{id}", get(shop_page))
         .nest_service("/avatars", tower_http::services::ServeDir::new("avatars"))
         .route("/health", get(|| async { "ok" }))
         .route("/admin", get(admin::dashboard))
@@ -206,6 +223,10 @@ async fn main() -> Result<()> {
             get(admin::edit_page).post(admin::edit_submit),
         )
         .route("/admin/delete/{id}", post(admin::delete))
+        .route("/admin/shops", get(admin::shops_dashboard))
+        .route("/admin/shops/add", post(admin::shop_add))
+        .route("/admin/shops/edit/{id}", post(admin::shop_edit))
+        .route("/admin/shops/delete/{id}", post(admin::shop_delete))
         .with_state(state);
 
     let listener = tokio::net::TcpListener::bind(&bind)
@@ -224,6 +245,49 @@ struct ArtistPage<'a> {
     entities: &'a str,
     entry: entries::Entry,
     embeds: Vec<String>,
+    /// Shops this artist is linked to (linked, first-class location).
+    shops: Vec<shops::Shop>,
+}
+
+#[derive(Template)]
+#[template(path = "shop.html")]
+struct ShopPage<'a> {
+    site_name: &'a str,
+    tagline: &'a str,
+    entities: &'a str,
+    shop: shops::Shop,
+    artists: Vec<entries::Entry>,
+}
+
+async fn shop_page(
+    State(state): State<Arc<AppState>>,
+    axum::extract::Path(id): axum::extract::Path<i64>,
+) -> Response {
+    let (shop, artists) = {
+        let conn = state.db.lock().unwrap();
+        let shop = shops::get(&conn, id).ok().flatten();
+        let artists = shops::entries_for_shop(&conn, id).unwrap_or_default();
+        (shop, artists)
+    };
+    let Some(shop) = shop else {
+        return (StatusCode::NOT_FOUND, "no such shop").into_response();
+    };
+    let d = &state.config.directory;
+    let page = ShopPage {
+        site_name: &d.name,
+        tagline: &d.tagline,
+        entities: &d.entities,
+        shop,
+        artists,
+    };
+    match page.render() {
+        Ok(html) => Html(html).into_response(),
+        Err(e) => (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            format!("template error: {e}"),
+        )
+            .into_response(),
+    }
 }
 
 async fn artist(
@@ -231,9 +295,15 @@ async fn artist(
     axum::extract::Path(handle): axum::extract::Path<String>,
 ) -> Response {
     let normalized = entries::normalize_handle(&handle);
-    let conn = state.db.lock().unwrap();
-    let entry = entries::get_by_handle(&conn, &normalized).ok().flatten();
-    drop(conn);
+    let (entry, artist_shops) = {
+        let conn = state.db.lock().unwrap();
+        let entry = entries::get_by_handle(&conn, &normalized).ok().flatten();
+        let artist_shops = match &entry {
+            Some(e) => shops::shops_for_entry(&conn, e.id).unwrap_or_default(),
+            None => Vec::new(),
+        };
+        (entry, artist_shops)
+    };
     let Some(entry) = entry else {
         return (StatusCode::NOT_FOUND, "no such artist").into_response();
     };
@@ -250,6 +320,7 @@ async fn artist(
         entities: &d.entities,
         entry,
         embeds,
+        shops: artist_shops,
     };
     match page.render() {
         Ok(html) => Html(html).into_response(),
@@ -266,7 +337,7 @@ async fn index(
     axum::extract::Query(q): axum::extract::Query<IndexQuery>,
 ) -> Response {
     let tag = q.tag.trim().to_string();
-    let (listed, tags) = {
+    let (listed, tags, map_pins) = {
         let conn = state.db.lock().unwrap();
         let listed = if tag.is_empty() {
             entries::list(&conn, false)
@@ -275,10 +346,13 @@ async fn index(
         }
         .unwrap_or_default();
         let tags = entries::tags_in_use(&conn).unwrap_or_default();
-        (listed, tags)
+        // The map is shop-centric and shows the whole directory (not the tag
+        // filter): one pin per located shop with its roster, plus solo pins.
+        let map_pins = shops::map_pins(&conn).unwrap_or_default();
+        (listed, tags, map_pins)
     };
-    let pins = pins_json(&listed);
-    let has_map = listed.iter().any(entries::Entry::located);
+    let pins = pins_json(&map_pins);
+    let has_map = !map_pins.is_empty();
     let d = &state.config.directory;
     let page = IndexPage {
         site_name: &d.name,
