@@ -29,6 +29,11 @@ CREATE TABLE IF NOT EXISTS entries (
     -- official Instagram embeds.
     featured_posts TEXT NOT NULL DEFAULT '',
     booking_url TEXT NOT NULL DEFAULT '',
+    -- Shop/studio address the admin types; geocoded to lat/lng once. An
+    -- entry appears on the map only when it has coordinates.
+    address TEXT NOT NULL DEFAULT '',
+    lat REAL,
+    lng REAL,
     active INTEGER NOT NULL DEFAULT 1,
     sort_order INTEGER NOT NULL DEFAULT 0,
     created_at TEXT NOT NULL DEFAULT (datetime('now')),
@@ -40,13 +45,38 @@ pub fn open(path: &Path) -> Result<Connection> {
     let conn = Connection::open(path)
         .with_context(|| format!("could not open database at {}", path.display()))?;
     conn.execute_batch(SCHEMA)?;
+    migrate(&conn)?;
     Ok(conn)
+}
+
+/// Idempotent, additive schema evolution: bring an older database up to the
+/// current shape by adding any columns it's missing. Since CREATE TABLE IF
+/// NOT EXISTS won't alter an existing table, new columns are applied here.
+/// Only additive changes belong here - never a destructive one.
+fn migrate(conn: &Connection) -> Result<()> {
+    let have: std::collections::HashSet<String> = {
+        let mut stmt = conn.prepare("PRAGMA table_info(entries)")?;
+        let cols = stmt.query_map([], |row| row.get::<_, String>(1))?;
+        cols.collect::<rusqlite::Result<_>>()?
+    };
+    // (column, DDL type) additive migrations.
+    for (col, decl) in [
+        ("address", "TEXT NOT NULL DEFAULT ''"),
+        ("lat", "REAL"),
+        ("lng", "REAL"),
+    ] {
+        if !have.contains(col) {
+            conn.execute(&format!("ALTER TABLE entries ADD COLUMN {col} {decl}"), [])?;
+        }
+    }
+    Ok(())
 }
 
 #[cfg(test)]
 pub fn open_in_memory() -> Result<Connection> {
     let conn = Connection::open_in_memory()?;
     conn.execute_batch(SCHEMA)?;
+    migrate(&conn)?;
     Ok(conn)
 }
 
@@ -66,6 +96,31 @@ mod tests {
             .query_row("SELECT COUNT(*) FROM entries", [], |r| r.get(0))
             .unwrap();
         assert_eq!(count, 1);
+    }
+
+    #[test]
+    fn migrate_adds_missing_columns_idempotently() {
+        // Simulate a pre-map database: the old schema without location cols.
+        let conn = Connection::open_in_memory().unwrap();
+        conn.execute_batch(
+            "CREATE TABLE entries (id INTEGER PRIMARY KEY, handle TEXT NOT NULL UNIQUE);",
+        )
+        .unwrap();
+        migrate(&conn).unwrap();
+        // Columns now exist and are writable.
+        conn.execute(
+            "INSERT INTO entries (handle, address, lat, lng) VALUES ('a', '1 Main St', 45.5, -122.6)",
+            [],
+        )
+        .unwrap();
+        // Running it again is a no-op, not an error.
+        migrate(&conn).unwrap();
+        let (lat, lng): (f64, f64) = conn
+            .query_row("SELECT lat, lng FROM entries WHERE handle='a'", [], |r| {
+                Ok((r.get(0)?, r.get(1)?))
+            })
+            .unwrap();
+        assert_eq!((lat, lng), (45.5, -122.6));
     }
 
     #[test]

@@ -16,7 +16,17 @@ pub struct Entry {
     pub tags: Vec<String>,
     pub featured_posts: Vec<String>,
     pub booking_url: String,
+    pub address: String,
+    pub lat: Option<f64>,
+    pub lng: Option<f64>,
     pub active: bool,
+}
+
+impl Entry {
+    /// True when the entry has coordinates and can be placed on the map.
+    pub fn located(&self) -> bool {
+        self.lat.is_some() && self.lng.is_some()
+    }
 }
 
 fn row_to_entry(row: &rusqlite::Row) -> rusqlite::Result<Entry> {
@@ -42,6 +52,9 @@ fn row_to_entry(row: &rusqlite::Row) -> rusqlite::Result<Entry> {
             .map(String::from)
             .collect(),
         booking_url: row.get("booking_url")?,
+        address: row.get("address")?,
+        lat: row.get("lat")?,
+        lng: row.get("lng")?,
         active: row.get::<_, i64>("active")? != 0,
     })
 }
@@ -163,35 +176,45 @@ pub fn add_by_handle(conn: &Connection, raw_handle: &str) -> Result<Option<i64>>
     }
 }
 
-#[allow(clippy::too_many_arguments)]
-pub fn update(
-    conn: &Connection,
-    id: i64,
-    display_name: &str,
-    shop: &str,
-    bio: &str,
-    tags: &str,
-    featured_posts: &str,
-    booking_url: &str,
-    active: bool,
-) -> Result<bool> {
+/// The admin-editable fields of an entry. Grouped into a struct so the
+/// update signature doesn't grow a positional argument per field.
+#[derive(Debug, Default)]
+pub struct EntryEdit {
+    pub display_name: String,
+    pub shop: String,
+    pub bio: String,
+    pub tags: String,
+    pub featured_posts: String,
+    pub booking_url: String,
+    pub address: String,
+    /// Geocoded coordinates for the address, if geocoding succeeded.
+    pub lat: Option<f64>,
+    pub lng: Option<f64>,
+    pub active: bool,
+}
+
+pub fn update(conn: &Connection, id: i64, e: &EntryEdit) -> Result<bool> {
     let n = conn.execute(
         "UPDATE entries SET display_name=?2, shop=?3, bio=?4, tags=?5,
-         featured_posts=?6, booking_url=?7, active=?8,
-         updated_at=datetime('now') WHERE id=?1",
+         featured_posts=?6, booking_url=?7, address=?8, lat=?9, lng=?10,
+         active=?11, updated_at=datetime('now') WHERE id=?1",
         params![
             id,
-            display_name,
-            shop,
-            bio,
-            tags,
-            featured_posts,
-            booking_url,
-            active as i64
+            e.display_name,
+            e.shop,
+            e.bio,
+            e.tags,
+            e.featured_posts,
+            e.booking_url,
+            e.address,
+            e.lat,
+            e.lng,
+            e.active as i64,
         ],
     )?;
     Ok(n > 0)
 }
+
 
 pub fn delete(conn: &Connection, id: i64) -> Result<bool> {
     let n = conn.execute("DELETE FROM entries WHERE id = ?1", params![id])?;
@@ -202,6 +225,26 @@ pub fn delete(conn: &Connection, id: i64) -> Result<bool> {
 mod tests {
     use super::*;
     use crate::db::open_in_memory;
+
+    /// Test helper: update just the commonly-set fields, defaulting the rest.
+    fn edit(
+        conn: &Connection,
+        id: i64,
+        display_name: &str,
+        tags: &str,
+        active: bool,
+    ) -> Result<bool> {
+        update(
+            conn,
+            id,
+            &EntryEdit {
+                display_name: display_name.into(),
+                tags: tags.into(),
+                active,
+                ..Default::default()
+            },
+        )
+    }
 
     #[test]
     fn normalize_strips_at_urls_and_case() {
@@ -237,22 +280,30 @@ mod tests {
         update(
             &conn,
             id,
-            "Artist Name",
-            "Good Shop",
-            "bio here",
-            "blackwork, fine line",
-            "https://www.instagram.com/p/AAA/\nhttps://www.instagram.com/p/BBB/\n",
-            "https://example.com/book",
-            true,
+            &EntryEdit {
+                display_name: "Artist Name".into(),
+                shop: "Good Shop".into(),
+                bio: "bio here".into(),
+                tags: "blackwork, fine line".into(),
+                featured_posts:
+                    "https://www.instagram.com/p/AAA/\nhttps://www.instagram.com/p/BBB/\n".into(),
+                booking_url: "https://example.com/book".into(),
+                address: "123 Ink St, Portland".into(),
+                lat: Some(45.52),
+                lng: Some(-122.67),
+                active: true,
+            },
         )
         .unwrap();
         let e = get(&conn, id).unwrap().unwrap();
         assert_eq!(e.display_name, "Artist Name");
         assert_eq!(e.tags, vec!["blackwork", "fine line"]);
         assert_eq!(e.featured_posts.len(), 2);
+        assert_eq!(e.address, "123 Ink St, Portland");
+        assert!(e.located());
 
         // Deactivated entries drop from the public list but stay in admin.
-        update(&conn, id, "Artist Name", "", "", "", "", "", false).unwrap();
+        edit(&conn, id, "Artist Name", "", false).unwrap();
         assert!(list(&conn, false).unwrap().is_empty());
         assert_eq!(list(&conn, true).unwrap().len(), 1);
     }
@@ -281,10 +332,10 @@ mod tests {
         let a = add_by_handle(&conn, "a").unwrap().unwrap();
         let b = add_by_handle(&conn, "b").unwrap().unwrap();
         let c = add_by_handle(&conn, "c").unwrap().unwrap();
-        update(&conn, a, "A", "", "", "blackwork, fine line", "", "", true).unwrap();
-        update(&conn, b, "B", "", "", "blackwork", "", "", true).unwrap();
+        edit(&conn, a, "A", "blackwork, fine line", true).unwrap();
+        edit(&conn, b, "B", "blackwork", true).unwrap();
         // Inactive entry's tags must not count or appear.
-        update(&conn, c, "C", "", "", "blackwork, color", "", "", false).unwrap();
+        edit(&conn, c, "C", "blackwork, color", false).unwrap();
 
         // Case-insensitive tag match, active only.
         let bw = list_by_tag(&conn, "BlackWork").unwrap();
@@ -304,7 +355,7 @@ mod tests {
         let conn = open_in_memory().unwrap();
         let id = add_by_handle(&conn, "artist").unwrap().unwrap();
         assert!(get_by_handle(&conn, "artist").unwrap().is_some());
-        update(&conn, id, "artist", "", "", "", "", "", false).unwrap();
+        edit(&conn, id, "artist", "", false).unwrap();
         assert!(get_by_handle(&conn, "artist").unwrap().is_none());
     }
 
