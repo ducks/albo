@@ -85,13 +85,21 @@ fn prompt_password() -> Result<String> {
     }
 }
 
+/// One row of the public list: the entry plus the shops it's linked to, so
+/// the table can link the shop to its page instead of showing the free-text
+/// fallback. `shops` is empty when the artist has no linked shop.
+struct IndexRow {
+    entry: entries::Entry,
+    shops: Vec<shops::Shop>,
+}
+
 #[derive(Template)]
 #[template(path = "index.html")]
 struct IndexPage<'a> {
     site_name: &'a str,
     tagline: &'a str,
     entities: &'a str,
-    entries: Vec<entries::Entry>,
+    entries: Vec<IndexRow>,
     /// (tag, count) pairs for the filter bar.
     tags: Vec<(String, usize)>,
     /// The currently-selected tag, empty when showing all.
@@ -337,7 +345,7 @@ async fn index(
     axum::extract::Query(q): axum::extract::Query<IndexQuery>,
 ) -> Response {
     let tag = q.tag.trim().to_string();
-    let (listed, tags, map_pins) = {
+    let (rows, tags, map_pins) = {
         let conn = state.db.lock().unwrap();
         let listed = if tag.is_empty() {
             entries::list(&conn, false)
@@ -346,10 +354,21 @@ async fn index(
         }
         .unwrap_or_default();
         let tags = entries::tags_in_use(&conn).unwrap_or_default();
+        // Batch-load the linked shops so each row can show the real shop
+        // (linked to its page) instead of the free-text fallback.
+        let ids: Vec<i64> = listed.iter().map(|e| e.id).collect();
+        let mut by_entry = shops::shops_by_entry(&conn, &ids).unwrap_or_default();
+        let rows: Vec<IndexRow> = listed
+            .into_iter()
+            .map(|entry| {
+                let shops = by_entry.remove(&entry.id).unwrap_or_default();
+                IndexRow { entry, shops }
+            })
+            .collect();
         // The map is shop-centric and shows the whole directory (not the tag
         // filter): one pin per located shop with its roster, plus solo pins.
         let map_pins = shops::map_pins(&conn).unwrap_or_default();
-        (listed, tags, map_pins)
+        (rows, tags, map_pins)
     };
     let pins = pins_json(&map_pins);
     let has_map = !map_pins.is_empty();
@@ -358,7 +377,7 @@ async fn index(
         site_name: &d.name,
         tagline: &d.tagline,
         entities: &d.entities,
-        entries: listed,
+        entries: rows,
         tags,
         active_tag: tag,
         pins_json: pins,

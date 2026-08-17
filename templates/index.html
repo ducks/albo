@@ -40,12 +40,18 @@
     <div id="list-view">
       <table>
         <tr><th>Name</th><th>Shop</th><th>Tags</th><th>Instagram</th></tr>
-        {% for e in entries %}
+        {% for row in entries %}
           <tr>
-            <td><a href="/a/{{ e.handle }}">{{ e.display_name }}</a></td>
-            <td>{{ e.shop }}</td>
-            <td>{{ e.tags.join(", ") }}</td>
-            <td><a href="https://instagram.com/{{ e.handle }}">@{{ e.handle }}</a></td>
+            <td><a href="/a/{{ row.entry.handle }}">{{ row.entry.display_name }}</a></td>
+            <td>
+              {% if !row.shops.is_empty() %}
+                {% for s in row.shops %}{% if !loop.first %}, {% endif %}<a href="/s/{{ s.id }}">{{ s.name }}</a>{% endfor %}
+              {% else %}
+                {{ row.entry.shop }}
+              {% endif %}
+            </td>
+            <td>{{ row.entry.tags.join(", ") }}</td>
+            <td><a href="https://instagram.com/{{ row.entry.handle }}">@{{ row.entry.handle }}</a></td>
           </tr>
         {% endfor %}
       </table>

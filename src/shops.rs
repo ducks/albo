@@ -116,6 +116,41 @@ pub fn shop_ids_for_entry(conn: &Connection, entry_id: i64) -> Result<Vec<i64>> 
     Ok(rows.collect::<rusqlite::Result<_>>()?)
 }
 
+/// Linked shops for each of the given entry ids, as a map. Entries with no
+/// shop link are simply absent. One query, so the index list doesn't do an
+/// N+1 lookup per row.
+pub fn shops_by_entry(
+    conn: &Connection,
+    entry_ids: &[i64],
+) -> Result<std::collections::HashMap<i64, Vec<Shop>>> {
+    use std::collections::HashMap;
+    let mut out: HashMap<i64, Vec<Shop>> = HashMap::new();
+    if entry_ids.is_empty() {
+        return Ok(out);
+    }
+    // Build a "(?,?,...)" placeholder list for the IN clause.
+    let placeholders = std::iter::repeat_n("?", entry_ids.len())
+        .collect::<Vec<_>>()
+        .join(",");
+    let sql = format!(
+        "SELECT es.entry_id, s.* FROM shops s
+         JOIN entry_shops es ON es.shop_id = s.id
+         WHERE es.entry_id IN ({placeholders})
+         ORDER BY s.name"
+    );
+    let mut stmt = conn.prepare(&sql)?;
+    let params = rusqlite::params_from_iter(entry_ids.iter());
+    let rows = stmt.query_map(params, |row| {
+        let entry_id: i64 = row.get("entry_id")?;
+        Ok((entry_id, row_to_shop(row)?))
+    })?;
+    for r in rows {
+        let (entry_id, shop) = r?;
+        out.entry(entry_id).or_default().push(shop);
+    }
+    Ok(out)
+}
+
 /// A single point on the public map. A shop pin carries the shop and its
 /// active artists; a solo pin is one shopless, self-located artist.
 pub struct MapPin {
