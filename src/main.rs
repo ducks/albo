@@ -9,6 +9,7 @@ mod db;
 mod entries;
 mod geocode;
 mod instagram;
+mod shops;
 
 use anyhow::{Context, Result};
 use askama::Template;
