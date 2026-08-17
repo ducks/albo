@@ -42,13 +42,6 @@ pub fn get(conn: &Connection, id: i64) -> Result<Option<Shop>> {
     Ok(stmt.query_row(params![id], row_to_shop).optional()?)
 }
 
-pub fn get_by_name(conn: &Connection, name: &str) -> Result<Option<Shop>> {
-    let mut stmt = conn.prepare("SELECT * FROM shops WHERE name = ?1")?;
-    Ok(stmt
-        .query_row(params![name.trim()], row_to_shop)
-        .optional()?)
-}
-
 /// Create a shop by name (or return the existing one's id). Name is unique.
 pub fn add(conn: &Connection, name: &str) -> Result<Option<i64>> {
     let name = name.trim();
