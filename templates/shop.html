@@ -1,0 +1,24 @@
+{% extends "base.html" %}
+{% block title %}{{ shop.name }} — {{ site_name }}{% endblock %}
+{% block content %}
+  <p><a href="/">&larr; all {{ entities }}</a></p>
+  <h2 style="margin-bottom:.2rem">{{ shop.name }}</h2>
+  {% if shop.address != "" %}
+    <p style="color:var(--muted); margin-top:0">{{ shop.address }}</p>
+  {% endif %}
+
+  {% if artists.is_empty() %}
+    <p>No {{ entities }} listed at this shop yet.</p>
+  {% else %}
+    <table>
+      <tr><th>Name</th><th>Tags</th><th>Instagram</th></tr>
+      {% for e in artists %}
+        <tr>
+          <td><a href="/a/{{ e.handle }}">{{ e.display_name }}</a></td>
+          <td>{{ e.tags.join(", ") }}</td>
+          <td><a href="https://instagram.com/{{ e.handle }}">@{{ e.handle }}</a></td>
+        </tr>
+      {% endfor %}
+    </table>
+  {% endif %}
+{% endblock %}

@@ -123,6 +123,61 @@ pub fn shop_ids_for_entry(conn: &Connection, entry_id: i64) -> Result<Vec<i64>> 
     Ok(rows.collect::<rusqlite::Result<_>>()?)
 }
 
+/// A single point on the public map. A shop pin carries the shop and its
+/// active artists; a solo pin is one shopless, self-located artist.
+pub struct MapPin {
+    pub lat: f64,
+    pub lng: f64,
+    /// The shop this pin represents, if any (solo artists have none).
+    pub shop: Option<Shop>,
+    /// Artists shown in the popup (a shop's roster, or the one solo artist).
+    pub artists: Vec<crate::entries::Entry>,
+}
+
+/// Build the public map: one pin per located shop (with its active artists),
+/// plus one pin per located artist who is not linked to any shop. A shop
+/// artist's own address is ignored - the shop's location wins - matching the
+/// edit-form contract. Only active artists appear.
+pub fn map_pins(conn: &Connection) -> Result<Vec<MapPin>> {
+    let mut pins = Vec::new();
+
+    // Shop pins: every located shop that has at least one active artist.
+    for shop in list(conn)? {
+        if !shop.located() {
+            continue;
+        }
+        let artists = entries_for_shop(conn, shop.id)?;
+        if artists.is_empty() {
+            continue;
+        }
+        pins.push(MapPin {
+            lat: shop.lat.unwrap(),
+            lng: shop.lng.unwrap(),
+            shop: Some(shop),
+            artists,
+        });
+    }
+
+    // Solo pins: active, located artists with no shop link at all.
+    let mut stmt = conn.prepare(
+        "SELECT e.* FROM entries e
+         WHERE e.active = 1 AND e.lat IS NOT NULL AND e.lng IS NOT NULL
+           AND NOT EXISTS (SELECT 1 FROM entry_shops es WHERE es.entry_id = e.id)
+         ORDER BY e.display_name, e.handle",
+    )?;
+    let solos = stmt.query_map([], crate::entries::row_to_entry)?;
+    for artist in solos {
+        let a = artist?;
+        pins.push(MapPin {
+            lat: a.lat.unwrap(),
+            lng: a.lng.unwrap(),
+            shop: None,
+            artists: vec![a],
+        });
+    }
+    Ok(pins)
+}
+
 /// Active artists linked to a shop.
 pub fn entries_for_shop(conn: &Connection, shop_id: i64) -> Result<Vec<crate::entries::Entry>> {
     let mut stmt = conn.prepare(
@@ -186,6 +241,70 @@ mod tests {
         // Deleting a shop cascades the link away.
         delete(&conn, s2).unwrap();
         assert!(shops_for_entry(&conn, a).unwrap().is_empty());
+    }
+
+    #[test]
+    fn map_pins_prefers_shop_location_and_includes_solos() {
+        let conn = open_in_memory().unwrap();
+
+        // A located shop with two active artists -> one shop pin.
+        let shop = add(&conn, "Heart Eyes").unwrap().unwrap();
+        update(
+            &conn,
+            shop,
+            "Heart Eyes",
+            "1 Main St",
+            Some(45.5),
+            Some(-122.6),
+        )
+        .unwrap();
+        let a = entries::add_by_handle(&conn, "a").unwrap().unwrap();
+        let b = entries::add_by_handle(&conn, "b").unwrap().unwrap();
+        for id in [a, b] {
+            entries::update(
+                &conn,
+                id,
+                &entries::EntryEdit {
+                    display_name: "x".into(),
+                    active: true,
+                    // A shop artist's own address must be ignored on the map.
+                    address: "999 Ignored Ave".into(),
+                    lat: Some(1.0),
+                    lng: Some(1.0),
+                    ..Default::default()
+                },
+            )
+            .unwrap();
+        }
+        set_entry_shops(&conn, a, &[shop]).unwrap();
+        set_entry_shops(&conn, b, &[shop]).unwrap();
+
+        // A shopless, located artist -> one solo pin.
+        let solo = entries::add_by_handle(&conn, "solo").unwrap().unwrap();
+        entries::update(
+            &conn,
+            solo,
+            &entries::EntryEdit {
+                display_name: "Solo".into(),
+                active: true,
+                lat: Some(40.0),
+                lng: Some(-70.0),
+                ..Default::default()
+            },
+        )
+        .unwrap();
+
+        let pins = map_pins(&conn).unwrap();
+        assert_eq!(pins.len(), 2);
+
+        let shop_pin = pins.iter().find(|p| p.shop.is_some()).unwrap();
+        // The shop's coords win over the artists' own (1.0, 1.0).
+        assert_eq!((shop_pin.lat, shop_pin.lng), (45.5, -122.6));
+        assert_eq!(shop_pin.artists.len(), 2);
+
+        let solo_pin = pins.iter().find(|p| p.shop.is_none()).unwrap();
+        assert_eq!((solo_pin.lat, solo_pin.lng), (40.0, -70.0));
+        assert_eq!(solo_pin.artists.len(), 1);
     }
 
     #[test]
