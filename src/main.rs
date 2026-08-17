@@ -7,6 +7,7 @@ mod auth;
 mod config;
 mod db;
 mod entries;
+mod geocode;
 mod instagram;
 
 use anyhow::{Context, Result};
@@ -94,6 +95,46 @@ struct IndexPage<'a> {
     tags: Vec<(String, usize)>,
     /// The currently-selected tag, empty when showing all.
     active_tag: String,
+    /// Pre-rendered JSON array of map pins for the located entries, so the
+    /// template doesn't do JSON. Empty array when nothing is located.
+    pins_json: String,
+    /// Whether any entry has a location - controls whether the map toggle shows.
+    has_map: bool,
+}
+
+/// JSON-escape a string for embedding in the pins array. Handles the
+/// characters that would break a JSON string; enough for names/handles.
+fn json_escape(s: &str) -> String {
+    let mut out = String::with_capacity(s.len() + 2);
+    for c in s.chars() {
+        match c {
+            '"' => out.push_str("\\\""),
+            '\\' => out.push_str("\\\\"),
+            '\n' => out.push_str("\\n"),
+            '\r' => out.push_str("\\r"),
+            '\t' => out.push_str("\\t"),
+            c if (c as u32) < 0x20 => out.push_str(&format!("\\u{:04x}", c as u32)),
+            c => out.push(c),
+        }
+    }
+    out
+}
+
+/// Build the map-pin JSON array for a set of entries. Only located entries
+/// are included; each pin carries what the popup needs.
+fn pins_json(entries: &[entries::Entry]) -> String {
+    let mut items: Vec<String> = Vec::new();
+    for e in entries.iter().filter(|e| e.located()) {
+        items.push(format!(
+            "{{\"name\":\"{}\",\"handle\":\"{}\",\"shop\":\"{}\",\"lat\":{},\"lng\":{}}}",
+            json_escape(&e.display_name),
+            json_escape(&e.handle),
+            json_escape(&e.shop),
+            e.lat.unwrap(),
+            e.lng.unwrap(),
+        ));
+    }
+    format!("[{}]", items.join(","))
 }
 
 #[derive(serde::Deserialize)]
@@ -236,6 +277,8 @@ async fn index(
         let tags = entries::tags_in_use(&conn).unwrap_or_default();
         (listed, tags)
     };
+    let pins = pins_json(&listed);
+    let has_map = listed.iter().any(entries::Entry::located);
     let d = &state.config.directory;
     let page = IndexPage {
         site_name: &d.name,
@@ -244,6 +287,8 @@ async fn index(
         entries: listed,
         tags,
         active_tag: tag,
+        pins_json: pins,
+        has_map,
     };
     match page.render() {
         Ok(html) => Html(html).into_response(),
