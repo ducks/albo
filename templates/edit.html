@@ -22,6 +22,14 @@
     <label for="booking_url">Booking link</label>
     <input type="url" id="booking_url" name="booking_url" value="{{ entry.booking_url }}">
 
+    <label for="address">Shop address (for the map; geocoded on save)</label>
+    <input type="text" id="address" name="address" value="{{ entry.address }}"
+           placeholder="123 Main St, Portland, OR">
+    {% if entry.address != "" && !entry.located() %}
+      <p class="notice">This address didn't geocode to a map location. Check the
+        spelling, or leave it - the entry still appears in the list.</p>
+    {% endif %}
+
     <label><input type="checkbox" name="active" value="1" {% if entry.active %}checked{% endif %}> Visible on the public site</label>
 
     <p><button type="submit">Save</button></p>

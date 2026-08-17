@@ -1,4 +1,10 @@
 {% extends "base.html" %}
+{% block head %}
+  {% if has_map %}
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"
+          integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY=" crossorigin="">
+  {% endif %}
+{% endblock %}
 {% block content %}
   {% if !tags.is_empty() %}
     <p style="margin-bottom:1rem">
@@ -24,16 +30,89 @@
       <p>No {{ entities }} tagged "{{ active_tag }}". <a href="/">Show all</a>.</p>
     {% endif %}
   {% else %}
-    <table>
-      <tr><th>Name</th><th>Shop</th><th>Tags</th><th>Instagram</th></tr>
-      {% for e in entries %}
-        <tr>
-          <td><a href="/a/{{ e.handle }}">{{ e.display_name }}</a></td>
-          <td>{{ e.shop }}</td>
-          <td>{{ e.tags.join(", ") }}</td>
-          <td><a href="https://instagram.com/{{ e.handle }}">@{{ e.handle }}</a></td>
-        </tr>
-      {% endfor %}
-    </table>
+    {% if has_map %}
+      <p id="view-toggle" style="margin-bottom:1rem">
+        <button type="button" class="view-btn" data-view="list">List</button>
+        <button type="button" class="view-btn quiet" data-view="map">Map</button>
+      </p>
+    {% endif %}
+
+    <div id="list-view">
+      <table>
+        <tr><th>Name</th><th>Shop</th><th>Tags</th><th>Instagram</th></tr>
+        {% for e in entries %}
+          <tr>
+            <td><a href="/a/{{ e.handle }}">{{ e.display_name }}</a></td>
+            <td>{{ e.shop }}</td>
+            <td>{{ e.tags.join(", ") }}</td>
+            <td><a href="https://instagram.com/{{ e.handle }}">@{{ e.handle }}</a></td>
+          </tr>
+        {% endfor %}
+      </table>
+    </div>
+
+    {% if has_map %}
+      <div id="map-view" style="display:none">
+        <div id="map" style="height:70vh; border:1px solid var(--line); border-radius:4px"></div>
+      </div>
+      <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"
+              integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo=" crossorigin=""></script>
+      <script>
+        (function () {
+          var pins = {{ pins_json|safe }};
+          var toggle = document.getElementById("view-toggle");
+          var listView = document.getElementById("list-view");
+          var mapView = document.getElementById("map-view");
+          var map = null;
+
+          function showList() {
+            listView.style.display = "";
+            mapView.style.display = "none";
+            setActive("list");
+          }
+          function showMap() {
+            listView.style.display = "none";
+            mapView.style.display = "";
+            setActive("map");
+            if (!map) initMap();
+            else map.invalidateSize();
+          }
+          function setActive(view) {
+            toggle.querySelectorAll(".view-btn").forEach(function (b) {
+              b.classList.toggle("quiet", b.dataset.view !== view);
+            });
+          }
+          function initMap() {
+            map = L.map("map");
+            L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
+              maxZoom: 19,
+              attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>'
+            }).addTo(map);
+            var group = [];
+            pins.forEach(function (p) {
+              var m = L.marker([p.lat, p.lng]).addTo(map);
+              var label = "<strong>" + escapeHtml(p.name) + "</strong>";
+              if (p.shop) label += "<br>" + escapeHtml(p.shop);
+              label += '<br><a href="/a/' + encodeURIComponent(p.handle) + '">view</a>';
+              m.bindPopup(label);
+              group.push([p.lat, p.lng]);
+            });
+            if (group.length === 1) map.setView(group[0], 13);
+            else if (group.length) map.fitBounds(group, { padding: [40, 40] });
+            else map.setView([0, 0], 2);
+          }
+          function escapeHtml(s) {
+            return s.replace(/[&<>"]/g, function (c) {
+              return { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c];
+            });
+          }
+          toggle.addEventListener("click", function (e) {
+            var v = e.target.dataset.view;
+            if (v === "map") showMap();
+            else if (v === "list") showList();
+          });
+        })();
+      </script>
+    {% endif %}
   {% endif %}
 {% endblock %}

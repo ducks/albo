@@ -230,6 +230,8 @@ pub struct EditForm {
     featured_posts: String,
     #[serde(default)]
     booking_url: String,
+    #[serde(default)]
+    address: String,
     /// Checkboxes are absent when unchecked; presence means true.
     #[serde(default)]
     active: Option<String>,
@@ -242,19 +244,47 @@ pub async fn edit_submit(
     Form(form): Form<EditForm>,
 ) -> Response {
     require_admin!(state, headers);
-    let conn = state.db.lock().unwrap();
-    let res = entries::update(
-        &conn,
-        id,
-        form.display_name.trim(),
-        form.shop.trim(),
-        form.bio.trim(),
-        form.tags.trim(),
-        form.featured_posts.trim(),
-        form.booking_url.trim(),
-        form.active.is_some(),
-    );
-    drop(conn);
+    let address = form.address.trim().to_string();
+
+    // Preserve existing coordinates if the address is unchanged; only
+    // (re)geocode when the address is new or edited. Empty address clears
+    // the pin. Geocoding is a blocking network call, run off the runtime,
+    // and best-effort - a failure just leaves the entry off the map.
+    let (prev_addr, prev_lat, prev_lng) = {
+        let conn = state.db.lock().unwrap();
+        match entries::get(&conn, id).ok().flatten() {
+            Some(e) => (e.address, e.lat, e.lng),
+            None => return (StatusCode::NOT_FOUND, "no such entry").into_response(),
+        }
+    };
+    let (lat, lng) = if address.is_empty() {
+        (None, None)
+    } else if address == prev_addr && prev_lat.is_some() {
+        (prev_lat, prev_lng) // unchanged, keep cached coords, no network call
+    } else {
+        let a = address.clone();
+        match tokio::task::spawn_blocking(move || crate::geocode::geocode(&a)).await {
+            Ok(Some(ll)) => (Some(ll.lat), Some(ll.lng)),
+            _ => (None, None), // geocode failed: saved without a pin
+        }
+    };
+
+    let edit = entries::EntryEdit {
+        display_name: form.display_name.trim().to_string(),
+        shop: form.shop.trim().to_string(),
+        bio: form.bio.trim().to_string(),
+        tags: form.tags.trim().to_string(),
+        featured_posts: form.featured_posts.trim().to_string(),
+        booking_url: form.booking_url.trim().to_string(),
+        address,
+        lat,
+        lng,
+        active: form.active.is_some(),
+    };
+    let res = {
+        let conn = state.db.lock().unwrap();
+        entries::update(&conn, id, &edit)
+    };
     match res {
         Ok(true) => Redirect::to("/admin").into_response(),
         Ok(false) => (StatusCode::NOT_FOUND, "no such entry").into_response(),
