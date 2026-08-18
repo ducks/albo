@@ -22,6 +22,8 @@ struct LoginPage<'a> {
     site_name: &'a str,
     tagline: &'a str,
     failed: bool,
+    /// The login page is the one place the viewer is never authed.
+    authed: bool,
 }
 
 #[derive(Template)]
@@ -33,6 +35,9 @@ struct AdminPage<'a> {
     entities: &'a str,
     entries: Vec<Entry>,
     message: String,
+    /// Always true here (behind the admin gate); present so base.html's nav
+    /// can render uniformly across every page.
+    authed: bool,
 }
 
 #[derive(Template)]
@@ -44,6 +49,8 @@ struct EditPage<'a> {
     available_tags: String,
     /// All shops, with a flag for whether this entry is linked to each.
     shops: Vec<(crate::shops::Shop, bool)>,
+    /// Always true here (behind the admin gate); present for base.html's nav.
+    authed: bool,
 }
 
 #[derive(Template)]
@@ -53,6 +60,20 @@ struct ShopsPage<'a> {
     tagline: &'a str,
     shops: Vec<crate::shops::Shop>,
     message: String,
+    /// Always true here (behind the admin gate); present for base.html's nav.
+    authed: bool,
+}
+
+#[derive(Template)]
+#[template(path = "shop_edit.html")]
+struct ShopEditPage<'a> {
+    site_name: &'a str,
+    tagline: &'a str,
+    shop: crate::shops::Shop,
+    /// Active artists linked to this shop, shown as read-only context.
+    artists: Vec<Entry>,
+    /// Always true here (behind the admin gate); present for base.html's nav.
+    authed: bool,
 }
 
 fn render<T: Template>(t: T) -> Response {
@@ -68,7 +89,7 @@ fn render<T: Template>(t: T) -> Response {
 
 // --- auth gate --------------------------------------------------------------
 
-fn is_authed(state: &AppState, headers: &HeaderMap) -> bool {
+pub fn is_authed(state: &AppState, headers: &HeaderMap) -> bool {
     headers
         .get(header::COOKIE)
         .and_then(|v| v.to_str().ok())
@@ -92,6 +113,7 @@ pub async fn login_page(State(state): State<Arc<AppState>>) -> Response {
         site_name: &d.name,
         tagline: &d.tagline,
         failed: false,
+        authed: false,
     })
 }
 
@@ -115,6 +137,7 @@ pub async fn login_submit(
             site_name: &d.name,
             tagline: &d.tagline,
             failed: true,
+            authed: false,
         });
     }
     let token = state.sessions.create();
@@ -147,6 +170,7 @@ pub async fn dashboard(State(state): State<Arc<AppState>>, headers: HeaderMap) -
         entities: &d.entities,
         entries,
         message: String::new(),
+        authed: true,
     })
 }
 
@@ -201,6 +225,7 @@ pub async fn add(
                 entities: &d.entities,
                 entries,
                 message: format!("'{}' is empty or already listed.", form.handle.trim()),
+                authed: true,
             })
         }
         Err(e) => (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()).into_response(),
@@ -237,6 +262,7 @@ pub async fn edit_page(
         entry,
         available_tags: state.config.tags.available.join(", "),
         shops,
+        authed: true,
     })
 }
 
@@ -415,6 +441,7 @@ fn shops_page(state: &AppState, message: String) -> Response {
         tagline: &d.tagline,
         shops,
         message,
+        authed: true,
     })
 }
 
@@ -443,6 +470,31 @@ pub async fn shop_add(
         let _ = crate::shops::add(&conn, &name);
     }
     Redirect::to("/admin/shops").into_response()
+}
+
+pub async fn shop_edit_page(
+    State(state): State<Arc<AppState>>,
+    headers: HeaderMap,
+    Path(id): Path<i64>,
+) -> Response {
+    require_admin!(state, headers);
+    let (shop, artists) = {
+        let conn = state.db.lock().unwrap();
+        let shop = crate::shops::get(&conn, id).ok().flatten();
+        let artists = crate::shops::entries_for_shop(&conn, id).unwrap_or_default();
+        (shop, artists)
+    };
+    let Some(shop) = shop else {
+        return (StatusCode::NOT_FOUND, "no such shop").into_response();
+    };
+    let d = &state.config.directory;
+    render(ShopEditPage {
+        site_name: &d.name,
+        tagline: &d.tagline,
+        shop,
+        artists,
+        authed: true,
+    })
 }
 
 #[derive(Deserialize)]

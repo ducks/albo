@@ -54,16 +54,29 @@
     #theme-toggle { background: none; color: var(--muted); padding: .3rem .5rem;
                     font-size: 1.1rem; line-height: 1; }
     .view-btn { margin-right: .4rem; }
+    /* Header nav: login/admin links sit next to the theme toggle. */
+    .header-nav { display: flex; align-items: center; gap: .8rem; font-size: .9rem; }
+    /* A button that reads as a link (used for logout, which must POST). */
+    .linklike { background: none; color: var(--accent); padding: 0; font: inherit;
+                cursor: pointer; }
   </style>
   {% block head %}{% endblock %}
 </head>
 <body>
   <header>
     <div>
-      <h1>{{ site_name }}</h1>
+      <h1><a href="/" style="color:inherit; text-decoration:none">{{ site_name }}</a></h1>
       <p>{{ tagline }}</p>
     </div>
-    <button id="theme-toggle" type="button" title="Toggle light/dark" aria-label="Toggle light/dark">◐</button>
+    <nav class="header-nav">
+      {% if authed %}
+        <a href="/admin">Admin</a>
+        <form class="row-form" method="post" action="/admin/logout"><button class="linklike" type="submit">Log out</button></form>
+      {% else %}
+        <a href="/admin/login">Log in</a>
+      {% endif %}
+      <button id="theme-toggle" type="button" title="Toggle light/dark" aria-label="Toggle light/dark">◐</button>
+    </nav>
   </header>
   <main>
     {% block content %}{% endblock %}
