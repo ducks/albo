@@ -64,7 +64,7 @@ fn extract_number_field(json: &str, field: &str) -> Option<f64> {
 
 /// Minimal percent-encoding for a query value (spaces and the characters
 /// that would break a URL). Enough for addresses; not a general encoder.
-fn urlencode(s: &str) -> String {
+pub(crate) fn urlencode(s: &str) -> String {
     let mut out = String::with_capacity(s.len());
     for b in s.bytes() {
         match b {

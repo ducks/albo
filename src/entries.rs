@@ -27,6 +27,26 @@ impl Entry {
     pub fn located(&self) -> bool {
         self.lat.is_some() && self.lng.is_some()
     }
+
+    /// Case-insensitive substring match across the fields a visitor would
+    /// search by: name, handle, shop, bio, and tags. An empty query matches
+    /// everything. All search terms (whitespace-split) must match somewhere,
+    /// so "fine line portland" narrows rather than widens.
+    pub fn matches(&self, query: &str) -> bool {
+        let query = query.trim().to_lowercase();
+        if query.is_empty() {
+            return true;
+        }
+        let haystack = format!(
+            "{} {} {} {} {}",
+            self.display_name.to_lowercase(),
+            self.handle.to_lowercase(),
+            self.shop.to_lowercase(),
+            self.bio.to_lowercase(),
+            self.tags.join(" ").to_lowercase(),
+        );
+        query.split_whitespace().all(|term| haystack.contains(term))
+    }
 }
 
 pub(crate) fn row_to_entry(row: &rusqlite::Row) -> rusqlite::Result<Entry> {
@@ -243,6 +263,39 @@ mod tests {
                 ..Default::default()
             },
         )
+    }
+
+    #[test]
+    fn matches_searches_across_fields_and_terms() {
+        let e = Entry {
+            id: 1,
+            handle: "inkbyjane".into(),
+            display_name: "Jane Doe".into(),
+            shop: "Heart Eyes".into(),
+            bio: "Fine line and blackwork specialist".into(),
+            avatar_path: String::new(),
+            tags: vec!["fine line".into(), "blackwork".into()],
+            featured_posts: vec![],
+            booking_url: String::new(),
+            address: String::new(),
+            lat: None,
+            lng: None,
+            active: true,
+        };
+        // Empty query matches everything.
+        assert!(e.matches(""));
+        assert!(e.matches("   "));
+        // Each field is searchable, case-insensitively.
+        assert!(e.matches("jane")); // name
+        assert!(e.matches("INKBY")); // handle
+        assert!(e.matches("heart")); // shop
+        assert!(e.matches("specialist")); // bio
+        assert!(e.matches("blackwork")); // tag
+        // Multiple terms must all match (narrowing).
+        assert!(e.matches("jane heart"));
+        assert!(!e.matches("jane realism"));
+        // A term matching nothing fails.
+        assert!(!e.matches("watercolor"));
     }
 
     #[test]
