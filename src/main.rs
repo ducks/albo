@@ -104,6 +104,11 @@ struct IndexPage<'a> {
     tags: Vec<(String, usize)>,
     /// The currently-selected tag, empty when showing all.
     active_tag: String,
+    /// The current search query, echoed back into the search box.
+    active_query: String,
+    /// The search query URL-encoded, for safely carrying it in link hrefs
+    /// (tag links, "All", "clear"). Empty when there's no query.
+    encoded_query: String,
     /// Pre-rendered JSON array of map pins for the located entries, so the
     /// template doesn't do JSON. Empty array when nothing is located.
     pins_json: String,
@@ -167,6 +172,9 @@ fn pins_json(pins: &[shops::MapPin]) -> String {
 struct IndexQuery {
     #[serde(default)]
     tag: String,
+    /// Free-text search across entry fields. Empty means no search.
+    #[serde(default)]
+    q: String,
 }
 
 #[tokio::main]
@@ -362,14 +370,19 @@ async fn index(
 ) -> Response {
     let authed = admin::is_authed(&state, &headers);
     let tag = q.tag.trim().to_string();
+    let query = q.q.trim().to_string();
     let (rows, tags, map_pins) = {
         let conn = state.db.lock().unwrap();
-        let listed = if tag.is_empty() {
+        let listed: Vec<entries::Entry> = if tag.is_empty() {
             entries::list(&conn, false)
         } else {
             entries::list_by_tag(&conn, &tag)
         }
-        .unwrap_or_default();
+        .unwrap_or_default()
+        .into_iter()
+        // Search composes with the tag filter: narrow the tag-filtered set.
+        .filter(|e| e.matches(&query))
+        .collect();
         let tags = entries::tags_in_use(&conn).unwrap_or_default();
         // Batch-load the linked shops so each row can show the real shop
         // (linked to its page) instead of the free-text fallback.
@@ -397,6 +410,8 @@ async fn index(
         entries: rows,
         tags,
         active_tag: tag,
+        encoded_query: geocode::urlencode(&query),
+        active_query: query,
         pins_json: pins,
         has_map,
         authed,
