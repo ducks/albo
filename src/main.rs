@@ -15,7 +15,7 @@ use anyhow::{Context, Result};
 use askama::Template;
 use axum::Router;
 use axum::extract::State;
-use axum::http::StatusCode;
+use axum::http::{HeaderMap, StatusCode};
 use axum::response::{Html, IntoResponse, Response};
 use axum::routing::{get, post};
 use clap::{Parser, Subcommand};
@@ -109,6 +109,8 @@ struct IndexPage<'a> {
     pins_json: String,
     /// Whether any entry has a location - controls whether the map toggle shows.
     has_map: bool,
+    /// Whether the viewer is a logged-in admin (drives the header nav).
+    authed: bool,
 }
 
 /// JSON-escape a string for embedding in the pins array. Handles the
@@ -255,6 +257,8 @@ struct ArtistPage<'a> {
     embeds: Vec<String>,
     /// Shops this artist is linked to (linked, first-class location).
     shops: Vec<shops::Shop>,
+    /// Whether the viewer is a logged-in admin (drives the header nav).
+    authed: bool,
 }
 
 #[derive(Template)]
@@ -265,12 +269,16 @@ struct ShopPage<'a> {
     entities: &'a str,
     shop: shops::Shop,
     artists: Vec<entries::Entry>,
+    /// Whether the viewer is a logged-in admin (drives the header nav).
+    authed: bool,
 }
 
 async fn shop_page(
     State(state): State<Arc<AppState>>,
+    headers: HeaderMap,
     axum::extract::Path(id): axum::extract::Path<i64>,
 ) -> Response {
+    let authed = admin::is_authed(&state, &headers);
     let (shop, artists) = {
         let conn = state.db.lock().unwrap();
         let shop = shops::get(&conn, id).ok().flatten();
@@ -287,6 +295,7 @@ async fn shop_page(
         entities: &d.entities,
         shop,
         artists,
+        authed,
     };
     match page.render() {
         Ok(html) => Html(html).into_response(),
@@ -300,8 +309,10 @@ async fn shop_page(
 
 async fn artist(
     State(state): State<Arc<AppState>>,
+    headers: HeaderMap,
     axum::extract::Path(handle): axum::extract::Path<String>,
 ) -> Response {
+    let authed = admin::is_authed(&state, &headers);
     let normalized = entries::normalize_handle(&handle);
     let (entry, artist_shops) = {
         let conn = state.db.lock().unwrap();
@@ -329,6 +340,7 @@ async fn artist(
         entry,
         embeds,
         shops: artist_shops,
+        authed,
     };
     match page.render() {
         Ok(html) => Html(html).into_response(),
@@ -342,8 +354,10 @@ async fn artist(
 
 async fn index(
     State(state): State<Arc<AppState>>,
+    headers: HeaderMap,
     axum::extract::Query(q): axum::extract::Query<IndexQuery>,
 ) -> Response {
+    let authed = admin::is_authed(&state, &headers);
     let tag = q.tag.trim().to_string();
     let (rows, tags, map_pins) = {
         let conn = state.db.lock().unwrap();
@@ -382,6 +396,7 @@ async fn index(
         active_tag: tag,
         pins_json: pins,
         has_map,
+        authed,
     };
     match page.render() {
         Ok(html) => Html(html).into_response(),
