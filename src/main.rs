@@ -235,7 +235,10 @@ async fn main() -> Result<()> {
         .route("/admin/delete/{id}", post(admin::delete))
         .route("/admin/shops", get(admin::shops_dashboard))
         .route("/admin/shops/add", post(admin::shop_add))
-        .route("/admin/shops/edit/{id}", post(admin::shop_edit))
+        .route(
+            "/admin/shops/edit/{id}",
+            get(admin::shop_edit_page).post(admin::shop_edit),
+        )
         .route("/admin/shops/delete/{id}", post(admin::shop_delete))
         .with_state(state);
 

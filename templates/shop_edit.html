@@ -1,0 +1,45 @@
+{% extends "base.html" %}
+{% block title %}Edit {{ shop.name }} — {{ site_name }}{% endblock %}
+{% block content %}
+  <p><a href="/admin/shops">&larr; back to shops</a></p>
+  <h2>Edit {{ shop.name }}</h2>
+  <form method="post" action="/admin/shops/edit/{{ shop.id }}" style="max-width: 36rem">
+    <label for="name">Name</label>
+    <input type="text" id="name" name="name" value="{{ shop.name }}" required>
+
+    <label for="address">Address (for the map; geocoded on save)</label>
+    <input type="text" id="address" name="address" value="{{ shop.address }}"
+           placeholder="123 Main St, Portland, OR">
+    {% if shop.address != "" && !shop.located() %}
+      <p class="notice">This address didn't geocode to a map location. Check the
+        spelling, or leave it - the shop still lists.</p>
+    {% else if shop.located() %}
+      <p style="color:var(--muted); font-size:.85rem; margin:.3rem 0 0">Mapped &check;</p>
+    {% endif %}
+
+    <p><button type="submit">Save</button></p>
+  </form>
+
+  <h2 style="margin-top:2rem">{{ artists.len() }} linked</h2>
+  {% if artists.is_empty() %}
+    <p style="color:var(--muted)">No tattooers linked yet. Link them on their
+      <a href="/admin">edit page</a>.</p>
+  {% else %}
+    <table>
+      <tr><th>Name</th><th>Instagram</th></tr>
+      {% for e in artists %}
+        <tr>
+          <td><a href="/admin/edit/{{ e.id }}">{{ e.display_name }}</a></td>
+          <td><a href="https://instagram.com/{{ e.handle }}">@{{ e.handle }}</a></td>
+        </tr>
+      {% endfor %}
+    </table>
+  {% endif %}
+
+  <p style="margin-top:2rem">
+    <form class="row-form" method="post" action="/admin/shops/delete/{{ shop.id }}"
+          onsubmit="return confirm('Delete shop {{ shop.name }}? Tattooers will be unlinked.')">
+      <button class="quiet" type="submit">Delete shop</button>
+    </form>
+  </p>
+{% endblock %}

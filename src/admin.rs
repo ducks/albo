@@ -64,6 +64,18 @@ struct ShopsPage<'a> {
     authed: bool,
 }
 
+#[derive(Template)]
+#[template(path = "shop_edit.html")]
+struct ShopEditPage<'a> {
+    site_name: &'a str,
+    tagline: &'a str,
+    shop: crate::shops::Shop,
+    /// Active artists linked to this shop, shown as read-only context.
+    artists: Vec<Entry>,
+    /// Always true here (behind the admin gate); present for base.html's nav.
+    authed: bool,
+}
+
 fn render<T: Template>(t: T) -> Response {
     match t.render() {
         Ok(html) => Html(html).into_response(),
@@ -458,6 +470,31 @@ pub async fn shop_add(
         let _ = crate::shops::add(&conn, &name);
     }
     Redirect::to("/admin/shops").into_response()
+}
+
+pub async fn shop_edit_page(
+    State(state): State<Arc<AppState>>,
+    headers: HeaderMap,
+    Path(id): Path<i64>,
+) -> Response {
+    require_admin!(state, headers);
+    let (shop, artists) = {
+        let conn = state.db.lock().unwrap();
+        let shop = crate::shops::get(&conn, id).ok().flatten();
+        let artists = crate::shops::entries_for_shop(&conn, id).unwrap_or_default();
+        (shop, artists)
+    };
+    let Some(shop) = shop else {
+        return (StatusCode::NOT_FOUND, "no such shop").into_response();
+    };
+    let d = &state.config.directory;
+    render(ShopEditPage {
+        site_name: &d.name,
+        tagline: &d.tagline,
+        shop,
+        artists,
+        authed: true,
+    })
 }
 
 #[derive(Deserialize)]
