@@ -168,6 +168,33 @@ fn pins_json(pins: &[shops::MapPin]) -> String {
     format!("[{}]", items.join(","))
 }
 
+/// Build the map-pin JSON for a single artist page: one pin per located
+/// shop they work at (labeled with the shop, linking to it), plus the
+/// artist's own address as a pin when they have no shops but are located.
+/// Empty array when there's nothing to place.
+fn artist_pins_json(entry: &entries::Entry, shops: &[shops::Shop]) -> String {
+    let mut items: Vec<String> = Vec::new();
+    for s in shops.iter().filter(|s| s.located()) {
+        items.push(format!(
+            "{{\"lat\":{},\"lng\":{},\"shop_id\":{},\"label\":\"{}\"}}",
+            s.lat.unwrap(),
+            s.lng.unwrap(),
+            s.id,
+            json_escape(&s.name),
+        ));
+    }
+    // A shopless artist's personal address is their only location.
+    if shops.is_empty() && entry.located() {
+        items.push(format!(
+            "{{\"lat\":{},\"lng\":{},\"shop_id\":0,\"label\":\"{}\"}}",
+            entry.lat.unwrap(),
+            entry.lng.unwrap(),
+            json_escape(&entry.address),
+        ));
+    }
+    format!("[{}]", items.join(","))
+}
+
 #[derive(serde::Deserialize)]
 struct IndexQuery {
     #[serde(default)]
@@ -268,6 +295,11 @@ struct ArtistPage<'a> {
     embeds: Vec<String>,
     /// Shops this artist is linked to (linked, first-class location).
     shops: Vec<shops::Shop>,
+    /// Pre-rendered JSON pins for this artist's map (their located shops, or
+    /// their own address if shopless). Empty array when nothing to place.
+    pins_json: String,
+    /// Whether the artist has anywhere to place - gates the map.
+    has_map: bool,
     /// Whether the viewer is a logged-in admin (drives the header nav).
     authed: bool,
 }
@@ -343,6 +375,8 @@ async fn artist(
         .iter()
         .filter_map(|u| instagram::embed_url(u))
         .collect();
+    let pins = artist_pins_json(&entry, &artist_shops);
+    let has_map = pins != "[]";
     let d = &state.config.directory;
     let page = ArtistPage {
         site_name: &d.name,
@@ -351,6 +385,8 @@ async fn artist(
         entry,
         embeds,
         shops: artist_shops,
+        pins_json: pins,
+        has_map,
         authed,
     };
     match page.render() {
@@ -423,5 +459,107 @@ async fn index(
             format!("template error: {e}"),
         )
             .into_response(),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn shop(id: i64, name: &str, coords: Option<(f64, f64)>) -> shops::Shop {
+        shops::Shop {
+            id,
+            name: name.into(),
+            address: String::new(),
+            lat: coords.map(|c| c.0),
+            lng: coords.map(|c| c.1),
+        }
+    }
+
+    fn entry(handle: &str, address: &str, coords: Option<(f64, f64)>) -> entries::Entry {
+        entries::Entry {
+            id: 1,
+            handle: handle.into(),
+            display_name: handle.into(),
+            shop: String::new(),
+            bio: String::new(),
+            avatar_path: String::new(),
+            tags: vec![],
+            featured_posts: vec![],
+            booking_url: String::new(),
+            address: address.into(),
+            lat: coords.map(|c| c.0),
+            lng: coords.map(|c| c.1),
+            active: true,
+        }
+    }
+
+    #[test]
+    fn json_escape_handles_quotes_and_control_chars() {
+        assert_eq!(json_escape(r#"a"b\c"#), r#"a\"b\\c"#);
+        assert_eq!(json_escape("line\nbreak"), "line\\nbreak");
+    }
+
+    #[test]
+    fn artist_pins_one_per_located_shop() {
+        let e = entry("jane", "", None);
+        let shops = vec![
+            shop(1, "Heart Eyes", Some((45.5, -122.6))),
+            shop(2, "Sweet Heart", Some((45.56, -122.63))),
+        ];
+        let json = artist_pins_json(&e, &shops);
+        assert_eq!(
+            json,
+            r#"[{"lat":45.5,"lng":-122.6,"shop_id":1,"label":"Heart Eyes"},{"lat":45.56,"lng":-122.63,"shop_id":2,"label":"Sweet Heart"}]"#
+        );
+    }
+
+    #[test]
+    fn artist_pins_skip_unlocated_shops() {
+        let e = entry("jane", "", None);
+        let shops = vec![
+            shop(1, "Heart Eyes", Some((45.5, -122.6))),
+            shop(2, "No Coords", None), // guest spot without an address yet
+        ];
+        let json = artist_pins_json(&e, &shops);
+        // Only the located shop is placed; the other is silently skipped.
+        assert_eq!(
+            json,
+            r#"[{"lat":45.5,"lng":-122.6,"shop_id":1,"label":"Heart Eyes"}]"#
+        );
+    }
+
+    #[test]
+    fn artist_pins_use_personal_address_only_when_shopless() {
+        // Shopless + located: the personal address is the pin (shop_id 0).
+        let e = entry("bob", "123 Freelance Ln", Some((45.52, -122.65)));
+        assert_eq!(
+            artist_pins_json(&e, &[]),
+            r#"[{"lat":45.52,"lng":-122.65,"shop_id":0,"label":"123 Freelance Ln"}]"#
+        );
+        // With a located shop, the shop wins and the personal address is
+        // ignored - it never adds a second pin.
+        let with_shop = artist_pins_json(&e, &[shop(1, "Heart Eyes", Some((45.5, -122.6)))]);
+        assert_eq!(
+            with_shop,
+            r#"[{"lat":45.5,"lng":-122.6,"shop_id":1,"label":"Heart Eyes"}]"#
+        );
+    }
+
+    #[test]
+    fn artist_pins_empty_when_nothing_located() {
+        // No shops and no personal coords -> no map.
+        let e = entry("roy", "", None);
+        assert_eq!(artist_pins_json(&e, &[]), "[]");
+        // A shopless artist with an address string but no coords: still empty.
+        let no_coords = entry("roy", "somewhere ungeocoded", None);
+        assert_eq!(artist_pins_json(&no_coords, &[]), "[]");
+    }
+
+    #[test]
+    fn artist_pins_escape_shop_names() {
+        let e = entry("jane", "", None);
+        let json = artist_pins_json(&e, &[shop(1, r#"Ye "Olde" Shop"#, Some((1.0, 2.0)))]);
+        assert!(json.contains(r#""label":"Ye \"Olde\" Shop""#));
     }
 }
