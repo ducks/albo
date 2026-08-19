@@ -1,4 +1,10 @@
 {% extends "base.html" %}
+{% block head %}
+  {% if has_map %}
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"
+          integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY=" crossorigin="">
+  {% endif %}
+{% endblock %}
 {% block title %}{{ entry.display_name }} — {{ site_name }}{% endblock %}
 {% block content %}
   <p><a href="/">&larr; all {{ entities }}</a></p>
@@ -22,6 +28,40 @@
   {% if !entry.tags.is_empty() %}<p style="color:#666">{{ entry.tags.join(" · ") }}</p>{% endif %}
   {% if entry.booking_url != "" %}
     <p><a href="{{ entry.booking_url }}"><strong>Book with {{ entry.display_name }}</strong></a></p>
+  {% endif %}
+
+  {% if has_map %}
+    <div id="map" style="height:40vh; border:1px solid var(--line); border-radius:4px; margin-top:1rem"></div>
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"
+            integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo=" crossorigin=""></script>
+    <script>
+      (function () {
+        var pins = {{ pins_json|safe }};
+        var map = L.map("map");
+        L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
+          maxZoom: 19,
+          attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>'
+        }).addTo(map);
+        var group = [];
+        pins.forEach(function (p) {
+          var m = L.marker([p.lat, p.lng]).addTo(map);
+          var label = escapeHtml(p.label);
+          // Shop pins link to the shop page; a personal-address pin does not.
+          if (p.shop_id) {
+            label = '<a href="/s/' + p.shop_id + '">' + label + "</a>";
+          }
+          m.bindPopup(label);
+          group.push([p.lat, p.lng]);
+        });
+        if (group.length === 1) map.setView(group[0], 15);
+        else map.fitBounds(group, { padding: [40, 40] });
+        function escapeHtml(s) {
+          return s.replace(/[&<>"]/g, function (c) {
+            return { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c];
+          });
+        }
+      })();
+    </script>
   {% endif %}
 
   {% if !embeds.is_empty() %}
