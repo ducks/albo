@@ -1,10 +1,33 @@
 {% extends "base.html" %}
+{% block head %}
+  {% if shop.located() %}
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"
+          integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY=" crossorigin="">
+  {% endif %}
+{% endblock %}
 {% block title %}{{ shop.name }} — {{ site_name }}{% endblock %}
 {% block content %}
   <p><a href="/">&larr; all {{ entities }}</a></p>
   <h2 style="margin-bottom:.2rem">{{ shop.name }}</h2>
   {% if shop.address != "" %}
     <p style="color:var(--muted); margin-top:0">{{ shop.address }}</p>
+  {% endif %}
+
+  {% if shop.located() %}
+    <div id="map" style="height:40vh; border:1px solid var(--line); border-radius:4px; margin-bottom:1.5rem"></div>
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"
+            integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo=" crossorigin=""></script>
+    <script>
+      (function () {
+        var lat = {{ shop.lat.unwrap() }}, lng = {{ shop.lng.unwrap() }};
+        var map = L.map("map").setView([lat, lng], 15);
+        L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
+          maxZoom: 19,
+          attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>'
+        }).addTo(map);
+        L.marker([lat, lng]).addTo(map);
+      })();
+    </script>
   {% endif %}
 
   {% if artists.is_empty() %}
