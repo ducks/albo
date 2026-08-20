@@ -85,6 +85,51 @@ fn prompt_password() -> Result<String> {
     }
 }
 
+/// Per-page metadata for `<head>`: SEO description and Open Graph / social
+/// card tags. Rendered by base.html. Absolute URLs (og:url, og:image) are
+/// Options so they simply vanish from the markup when no base_url is set or
+/// the page has no image. `noindex` marks admin pages for robots exclusion.
+#[derive(Default)]
+pub struct Meta {
+    /// The og:title - the page's own title (entity/shop name), falling back
+    /// to the site name. Kept as data rather than a template block because
+    /// askama block overrides mid-attribute proved unreliable.
+    title: String,
+    /// Plain-text description (also used for og:description / twitter card).
+    description: String,
+    /// og:type - "website" for listings, "profile" for an artist.
+    og_type: String,
+    /// Absolute canonical URL of this page, or None when no base_url is set.
+    url: Option<String>,
+    /// Absolute image URL for the social card, or None when the page has none.
+    image: Option<String>,
+    /// True on private pages (admin), emitting a noindex robots directive.
+    noindex: bool,
+}
+
+impl Meta {
+    /// A listing/website page: default og:type, given title, description, path.
+    fn website(dir: &config::Directory, title: &str, description: &str, path: &str) -> Meta {
+        Meta {
+            title: title.to_string(),
+            description: description.to_string(),
+            og_type: "website".into(),
+            url: dir.abs_url(path),
+            image: None,
+            noindex: false,
+        }
+    }
+
+    /// A private admin page: no description worth indexing, noindex on.
+    pub fn admin() -> Meta {
+        Meta {
+            og_type: "website".into(),
+            noindex: true,
+            ..Default::default()
+        }
+    }
+}
+
 /// One row of the public list: the entry plus the shops it's linked to, so
 /// the table can link the shop to its page instead of showing the free-text
 /// fallback. `shops` is empty when the artist has no linked shop.
@@ -116,6 +161,7 @@ struct IndexPage<'a> {
     has_map: bool,
     /// Whether the viewer is a logged-in admin (drives the header nav).
     authed: bool,
+    meta: Meta,
 }
 
 /// JSON-escape a string for embedding in the pins array. Handles the
@@ -302,6 +348,7 @@ struct ArtistPage<'a> {
     has_map: bool,
     /// Whether the viewer is a logged-in admin (drives the header nav).
     authed: bool,
+    meta: Meta,
 }
 
 #[derive(Template)]
@@ -314,6 +361,7 @@ struct ShopPage<'a> {
     artists: Vec<entries::Entry>,
     /// Whether the viewer is a logged-in admin (drives the header nav).
     authed: bool,
+    meta: Meta,
 }
 
 async fn shop_page(
@@ -332,6 +380,24 @@ async fn shop_page(
         return (StatusCode::NOT_FOUND, "no such shop").into_response();
     };
     let d = &state.config.directory;
+    // "3 tattooers at Heart Eyes, 5280 SE Foster Rd" - describes the page for
+    // search results and social cards.
+    let count_desc = format!(
+        "{} {} at {}",
+        artists.len(),
+        if artists.len() == 1 {
+            &d.entity
+        } else {
+            &d.entities
+        },
+        shop.name,
+    );
+    let description = if shop.address.is_empty() {
+        count_desc
+    } else {
+        format!("{count_desc}, {}", shop.address)
+    };
+    let meta = Meta::website(d, &shop.name, &description, &format!("/s/{}", shop.id));
     let page = ShopPage {
         site_name: &d.name,
         tagline: &d.tagline,
@@ -339,6 +405,7 @@ async fn shop_page(
         shop,
         artists,
         authed,
+        meta,
     };
     match page.render() {
         Ok(html) => Html(html).into_response(),
@@ -378,6 +445,36 @@ async fn artist(
     let pins = artist_pins_json(&entry, &artist_shops);
     let has_map = pins != "[]";
     let d = &state.config.directory;
+    // Prefer the bio; fall back to a synthesized line so the card is never
+    // empty, e.g. "Jane Doe - fine line, blackwork tattooer in Portland".
+    let description = if !entry.bio.trim().is_empty() {
+        entry.bio.clone()
+    } else if entry.tags.is_empty() {
+        format!("{} - {} on {}", entry.display_name, d.entity, d.name)
+    } else {
+        format!(
+            "{} - {} {} on {}",
+            entry.display_name,
+            entry.tags.join(", "),
+            d.entity,
+            d.name,
+        )
+    };
+    // The avatar is a local path (e.g. "avatars/jane.jpg"); make it absolute
+    // for the social card. No avatar -> no image (text card).
+    let image = if entry.avatar_path.is_empty() {
+        None
+    } else {
+        d.abs_url(&format!("/{}", entry.avatar_path))
+    };
+    let meta = Meta {
+        title: entry.display_name.clone(),
+        description,
+        og_type: "profile".into(),
+        url: d.abs_url(&format!("/a/{}", entry.handle)),
+        image,
+        noindex: false,
+    };
     let page = ArtistPage {
         site_name: &d.name,
         tagline: &d.tagline,
@@ -388,6 +485,7 @@ async fn artist(
         pins_json: pins,
         has_map,
         authed,
+        meta,
     };
     match page.render() {
         Ok(html) => Html(html).into_response(),
@@ -439,6 +537,14 @@ async fn index(
     let pins = pins_json(&map_pins);
     let has_map = !map_pins.is_empty();
     let d = &state.config.directory;
+    // The tagline describes the directory; fall back to a generic line. The
+    // canonical URL is always "/", not the filtered/searched view.
+    let description = if d.tagline.trim().is_empty() {
+        format!("A curated directory of {}", d.entities)
+    } else {
+        d.tagline.clone()
+    };
+    let meta = Meta::website(d, &d.name, &description, "/");
     let page = IndexPage {
         site_name: &d.name,
         tagline: &d.tagline,
@@ -451,6 +557,7 @@ async fn index(
         pins_json: pins,
         has_map,
         authed,
+        meta,
     };
     match page.render() {
         Ok(html) => Html(html).into_response(),

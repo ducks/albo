@@ -25,6 +25,25 @@ pub struct Directory {
     pub entities: String,
     #[serde(default)]
     pub tagline: String,
+    /// Public base URL of the instance, e.g. "https://albo.example.com", with
+    /// no trailing slash. Used to build absolute URLs for Open Graph / social
+    /// card tags, which require fully-qualified links. When empty, the og:url
+    /// and og:image tags are omitted (title/description still render).
+    #[serde(default)]
+    pub base_url: String,
+}
+
+impl Directory {
+    /// Join the base URL with a root-relative path into an absolute URL, or
+    /// return None when no base URL is configured. `path` should start with
+    /// '/'. Trailing slashes on the base are trimmed to avoid '//'.
+    pub fn abs_url(&self, path: &str) -> Option<String> {
+        let base = self.base_url.trim_end_matches('/');
+        if base.is_empty() {
+            return None;
+        }
+        Some(format!("{base}{path}"))
+    }
 }
 
 #[derive(Debug, Default, Deserialize)]
@@ -53,6 +72,42 @@ impl Config {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn abs_url_joins_and_handles_missing_base() {
+        let d = Directory {
+            name: "x".into(),
+            entity: "a".into(),
+            entities: "as".into(),
+            tagline: String::new(),
+            base_url: "https://albo.example.com".into(),
+        };
+        assert_eq!(
+            d.abs_url("/a/jane").as_deref(),
+            Some("https://albo.example.com/a/jane")
+        );
+        // Trailing slash on the base is trimmed, no double slash.
+        let trailing = Directory {
+            base_url: "https://albo.example.com/".into(),
+            ..Directory {
+                name: "x".into(),
+                entity: "a".into(),
+                entities: "as".into(),
+                tagline: String::new(),
+                base_url: String::new(),
+            }
+        };
+        assert_eq!(
+            trailing.abs_url("/").as_deref(),
+            Some("https://albo.example.com/")
+        );
+        // No base configured -> None (tags omitted, no crash).
+        let empty = Directory {
+            base_url: String::new(),
+            ..trailing
+        };
+        assert_eq!(empty.abs_url("/a/jane"), None);
+    }
 
     #[test]
     fn example_config_parses() {
