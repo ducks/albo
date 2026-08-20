@@ -4,6 +4,31 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>{% block title %}{{ site_name }}{% endblock %}</title>
+
+  {# SEO + social card metadata. Absolute URLs (og:url/og:image) render only
+     when a base_url is configured; admin pages set noindex. #}
+  {% if meta.noindex %}
+    <meta name="robots" content="noindex, nofollow">
+  {% endif %}
+  {% if meta.description != "" %}
+    <meta name="description" content="{{ meta.description }}">
+  {% endif %}
+  <meta property="og:site_name" content="{{ site_name }}">
+  <meta property="og:title" content="{% if meta.title != "" %}{{ meta.title }}{% else %}{{ site_name }}{% endif %}">
+  <meta property="og:type" content="{{ meta.og_type }}">
+  {% if meta.description != "" %}
+    <meta property="og:description" content="{{ meta.description }}">
+  {% endif %}
+  {% if let Some(url) = meta.url %}
+    <link rel="canonical" href="{{ url }}">
+    <meta property="og:url" content="{{ url }}">
+  {% endif %}
+  {% if let Some(image) = meta.image %}
+    <meta property="og:image" content="{{ image }}">
+    <meta name="twitter:card" content="summary_large_image">
+  {% else %}
+    <meta name="twitter:card" content="summary">
+  {% endif %}
   <style>
     /* Light theme (default). Every color is a variable so a theme is just
        a new set of these. */

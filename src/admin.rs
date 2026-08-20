@@ -24,6 +24,7 @@ struct LoginPage<'a> {
     failed: bool,
     /// The login page is the one place the viewer is never authed.
     authed: bool,
+    meta: crate::Meta,
 }
 
 #[derive(Template)]
@@ -38,6 +39,7 @@ struct AdminPage<'a> {
     /// Always true here (behind the admin gate); present so base.html's nav
     /// can render uniformly across every page.
     authed: bool,
+    meta: crate::Meta,
 }
 
 #[derive(Template)]
@@ -51,6 +53,7 @@ struct EditPage<'a> {
     shops: Vec<(crate::shops::Shop, bool)>,
     /// Always true here (behind the admin gate); present for base.html's nav.
     authed: bool,
+    meta: crate::Meta,
 }
 
 #[derive(Template)]
@@ -62,6 +65,7 @@ struct ShopsPage<'a> {
     message: String,
     /// Always true here (behind the admin gate); present for base.html's nav.
     authed: bool,
+    meta: crate::Meta,
 }
 
 #[derive(Template)]
@@ -74,6 +78,7 @@ struct ShopEditPage<'a> {
     artists: Vec<Entry>,
     /// Always true here (behind the admin gate); present for base.html's nav.
     authed: bool,
+    meta: crate::Meta,
 }
 
 fn render<T: Template>(t: T) -> Response {
@@ -114,6 +119,7 @@ pub async fn login_page(State(state): State<Arc<AppState>>) -> Response {
         tagline: &d.tagline,
         failed: false,
         authed: false,
+        meta: crate::Meta::admin(),
     })
 }
 
@@ -138,6 +144,7 @@ pub async fn login_submit(
             tagline: &d.tagline,
             failed: true,
             authed: false,
+            meta: crate::Meta::admin(),
         });
     }
     let token = state.sessions.create();
@@ -171,6 +178,7 @@ pub async fn dashboard(State(state): State<Arc<AppState>>, headers: HeaderMap) -
         entries,
         message: String::new(),
         authed: true,
+        meta: crate::Meta::admin(),
     })
 }
 
@@ -226,6 +234,7 @@ pub async fn add(
                 entries,
                 message: format!("'{}' is empty or already listed.", form.handle.trim()),
                 authed: true,
+                meta: crate::Meta::admin(),
             })
         }
         Err(e) => (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()).into_response(),
@@ -263,6 +272,7 @@ pub async fn edit_page(
         available_tags: state.config.tags.available.join(", "),
         shops,
         authed: true,
+        meta: crate::Meta::admin(),
     })
 }
 
@@ -442,6 +452,7 @@ fn shops_page(state: &AppState, message: String) -> Response {
         shops,
         message,
         authed: true,
+        meta: crate::Meta::admin(),
     })
 }
 
@@ -494,6 +505,7 @@ pub async fn shop_edit_page(
         shop,
         artists,
         authed: true,
+        meta: crate::Meta::admin(),
     })
 }
 

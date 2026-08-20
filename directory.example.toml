@@ -14,6 +14,10 @@ entity = "tattooer"
 entities = "tattooers"
 # City / scope line shown under the name.
 tagline = "Portland tattooers, curated"
+# Public base URL (no trailing slash). Enables absolute Open Graph / social
+# card links, so shared pages render a rich preview. Leave empty to omit the
+# og:url and og:image tags (title and description still render).
+base_url = "https://albo.example.com"
 
 [tags]
 # The tag taxonomy admins can assign to entries. Order is display order.
